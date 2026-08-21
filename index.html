@@ -3871,9 +3871,10 @@ function _mesAppendToFile(handle, existingFile, cache) {
             if (lastNonEmpty === 0) {
               // 空 sheet：写表头（深蓝）+ 数据（底色）
               _mesStyleHeaderRow(ws.addRow(cache.headers));
-              ws.addRows(cache.rows);
+              ws.addRows(cache.rows.map(function(r) { return r.map(_mesToNumeric); }));
               _mesStyleDataRows(ws, cache.rows, 2, colMap);
               _mesAddTrialImages(wb, ws, cache, 2);       // 试模图片
+              _mesAlignAll(ws, 2, 1 + cache.rows.length, cache.headers.length);
               _mesAutoFitColumns(ws, cache);              // 列宽自适应
               return _mesExcelJSWriteOut(handle, wb).then(function() {
                 resolve('✅ 已填入 ' + cache.total + ' 行（含表头，共 ' + cache.headers.length + ' 列）→ 最后一个 sheet「' + ws.name + '」→ ' + handle.name);
@@ -3881,10 +3882,11 @@ function _mesAppendToFile(handle, existingFile, cache) {
             }
             // 已有内容：追加数据行（新行带底色），表头行补成深蓝
             var startRow = lastNonEmpty + 1;
-            ws.addRows(cache.rows);
+            ws.addRows(cache.rows.map(function(r) { return r.map(_mesToNumeric); }));
             _mesStyleDataRows(ws, cache.rows, startRow, colMap);
             _mesStyleHeaderRow(ws.getRow(1));
             _mesAddTrialImages(wb, ws, cache, startRow);  // 试模图片
+            _mesAlignAll(ws, 1, lastNonEmpty + cache.rows.length, cache.headers.length); // 新旧行统一居中
             _mesAutoFitColumns(ws, cache);                // 列宽自适应（只增不减）
             return _mesExcelJSWriteOut(handle, wb).then(function() {
               resolve('✅ 已追加 ' + cache.total + ' 行（共 ' + cache.headers.length + ' 列）→ 最后一个 sheet「' + ws.name + '」从第 ' + startRow + ' 行起（不重复表头）→ ' + handle.name);
@@ -4812,11 +4814,12 @@ function _mesStyleColIndexes(cache) {
   });
   return map;
 }
-// 表头行样式：深蓝底白字加粗
+// 表头行样式：深蓝底白字加粗居中
 function _mesStyleHeaderRow(row) {
   row.eachCell(function(cell) {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + MES_STYLE_HEADER_FILL } };
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
   });
 }
 // 数据行克重列底色（startRow 为 1-based 起始行）
@@ -4830,6 +4833,23 @@ function _mesStyleDataRows(ws, rows, startRow, colMap) {
     }
   });
 }
+// 把"类似数字"的文本转为数字（纯数字字符串，可带正负号/小数点；保留原值类型不变）
+function _mesToNumeric(v) {
+  if (typeof v !== 'string' || v.trim() === '') return v;
+  var t = v.trim();
+  if (/^[+-]?\d+(\.\d+)?$/.test(t)) return Number(t);
+  return v;
+}
+// 整表单元格居中（startRow~endRow，1-based，共 totalCols 列）
+function _mesAlignAll(ws, startRow, endRow, totalCols) {
+  if (!ws || !totalCols) return;
+  for (var r = startRow; r <= endRow; r++) {
+    for (var c = 1; c <= totalCols; c++) {
+      var cell = ws.getCell(r, c);
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    }
+  }
+}
 // 用 ExcelJS 生成带样式的新 workbook（表头深蓝 + 数据列底色 + 试模图片 + 列宽自适应）
 function _mesBuildStyledWorkbook(cache) {
   var wb = new ExcelJS.Workbook();
@@ -4837,9 +4857,10 @@ function _mesBuildStyledWorkbook(cache) {
   var ws = wb.addWorksheet('Sheet1');
   var hr = ws.addRow(cache.headers);
   _mesStyleHeaderRow(hr);
-  cache.rows.forEach(function(r) { ws.addRow(r); });
+  cache.rows.forEach(function(r) { ws.addRow(r.map(_mesToNumeric)); });
   _mesStyleDataRows(ws, cache.rows, 2, _mesStyleColIndexes(cache));
   _mesAddTrialImages(wb, ws, cache, 2);
+  _mesAlignAll(ws, 2, 1 + cache.rows.length, cache.headers.length);
   _mesAutoFitColumns(ws, cache);
   return wb;
 }
