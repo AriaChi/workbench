@@ -1171,6 +1171,17 @@ body.has-bg-image .page{background:transparent}
 .techperf-table th{background:var(--accent-light);color:var(--text);font-weight:600;padding:9px 12px;text-align:left;border-bottom:2px solid var(--border);white-space:nowrap}
 .techperf-table td{padding:9px 12px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle}
 .techperf-table tr:hover td{background:var(--accent-light)}
+.wk-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--content-bg);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:16px}
+.wk-tip{font-size:13px;color:var(--text-secondary)}
+.wk-controls{margin-left:auto;display:flex;gap:8px;align-items:center}
+.wk-status{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.wk-status-card{background:var(--content-bg);border:1px solid var(--border);border-radius:12px;padding:12px 16px;font-size:13px}
+.wk-status-card .wk-src-name{font-weight:600;margin-bottom:4px}
+.wk-status-card .wk-src-state{font-size:12px;color:var(--text-secondary);word-break:break-all}
+.wk-status-card.ok{border-color:rgba(46,125,50,.4)}
+.wk-status-card.ok .wk-src-state{color:#2E8B57}
+.wk-frame-wrap{background:var(--content-bg);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+@media (max-width:768px){.wk-status{grid-template-columns:1fr}}
 .tp-cd{display:inline-flex;align-items:center;gap:4px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .tp-cd-up{color:#2E8B57}
 .tp-cd-down{color:#C0392B}
@@ -1256,6 +1267,10 @@ if ('serviceWorker' in navigator) {
       <div class="nav-item" data-page="trial">
         <svg class="icon" viewBox="0 0 24 24"><path d="M21 21H4a1 1 0 0 1-1-1V3"/><path d="M7 14l3-4 3 3 5-6"/></svg>
         试模分析
+      </div>
+      <div class="nav-item" data-page="weekly">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        周报
       </div>
       <div class="nav-section-label">公共能力</div>
       <div class="nav-item" data-page="inbox">
@@ -1369,6 +1384,28 @@ if ('serviceWorker' in navigator) {
       </div>
       <input type="file" id="trial-files-input" accept=".xlsx,.xls" multiple style="display:none" onchange="onTrialFilesSelected(this)">
       <div id="trial-content"></div>
+    </div>
+
+    <!-- Page: 周报 -->
+    <div class="page hidden" id="page-weekly">
+      <div class="page-header">
+        <div class="page-title">
+          <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          周报
+          <span class="help-btn" onclick="event.stopPropagation();this.classList.toggle('show-tip')">?<span class="help-tooltip">一键汇总「工艺监察 / 技术员绩效 / 试模分析」三个模块的数据，生成周报。可在线预览、下载 HTML 或打印成 PDF。工模数据为当前快照，试模数据按所选周筛选。</span></span>
+        </div>
+        <div class="flex gap-8">
+          <button class="btn btn-outline btn-sm" onclick="weeklyDownloadHtml()" id="weekly-dl-btn" style="display:none" title="下载独立 HTML 周报文件（可浏览器打开、打印或转 PDF）">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            下载周报
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="generateWeeklyReport()">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            一键生成周报
+          </button>
+        </div>
+      </div>
+      <div id="weekly-content"></div>
     </div>
 
     <!-- Page: Inbox -->
@@ -1716,11 +1753,11 @@ function showToast(msg) {
 // ========== Navigation ==========
 const pageTitles = {
   supervision: '工艺监察',
-  techperf: '技术员绩效', trial: '试模分析',
+  techperf: '技术员绩效', trial: '试模分析', weekly: '周报',
   inbox: '知识碎片', search: '搜索', settings: '设置与数据',
   more: '更多'
 };
-const navOrder = ['supervision','techperf','trial','inbox','search','settings'];
+const navOrder = ['supervision','techperf','trial','weekly','inbox','search','settings'];
 
 function navigate(page) {
   if (page === 'more') { openDrawer(); return; }
@@ -1747,6 +1784,7 @@ function openDrawer() {
     {page:'supervision',label:'工艺监察',icon:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'},
     {page:'techperf',label:'技术员绩效',icon:'<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>'},
     {page:'trial',label:'试模分析',icon:'<path d="M21 21H4a1 1 0 0 1-1-1V3"/><path d="M7 14l3-4 3 3 5-6"/>'},
+    {page:'weekly',label:'周报',icon:'<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'},
     {page:'inbox',label:'知识碎片',icon:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'},
     {page:'search',label:'搜索',icon:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>'},
     {page:'settings',label:'设置与数据',icon:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'}
@@ -1820,6 +1858,7 @@ function renderPage(page) {
   if (page === 'supervision') renderSupervision();
   else if (page === 'techperf') renderTechPerf();
   else if (page === 'trial') renderTrial();
+  else if (page === 'weekly') renderWeekly();
   else if (page === 'inbox') renderInbox();
   else if (page === 'search') { /* 静态页：搜索框 oninput 直接调用 doSearch */ }
   else if (page === 'settings') renderSettings();
@@ -6276,6 +6315,448 @@ function trialExportExcel() {
       showToast('导出失败：' + (e && e.message ? e.message : e));
     }
   });
+}
+
+// ========== 周报一键生成 (Weekly Report) ==========
+var weeklySelectedWeek = null; // 当前选择的周（'YYYY-Www'）
+var weeklyReportHtml = '';    // 最近一次生成的完整周报 HTML（用于 iframe 预览 / 下载）
+
+// ---- 周选择 ----
+function _wkCollectWeeks() {
+  var set = {};
+  set[getWeekKey(new Date())] = 1; // 当前周始终可选
+  var t = store.trialAnalysis;
+  if (t && t.weeks) t.weeks.forEach(function(w) { set[String(w.label).split(' ')[0]] = 1; });
+  if (supervisionData && supervisionData.faults && supervisionData.faults.rows && supervisionData.faults.headers) {
+    var f = supervisionData.faults;
+    var colDate = findSupCol(f.headers, [/日期$|日期时间|^date$/i]);
+    if (colDate) f.rows.forEach(function(r) {
+      var dt = parseSupDate(r[colDate]);
+      if (dt) set[getWeekKey(dt)] = 1;
+    });
+  }
+  return Object.keys(set).sort(function(a, b) { return b.localeCompare(a); }); // 最新在前
+}
+function _wkWeekDates(key) {
+  var m = String(key).match(/^(\d{4})-W(\d{2})$/);
+  if (!m) return null;
+  var year = +m[1], week = +m[2];
+  var jan4 = new Date(year, 0, 4);
+  var day = (jan4.getDay() + 6) % 7; // Mon=0
+  var monday = new Date(jan4.getFullYear(), jan4.getMonth(), jan4.getDate() - day + (week - 1) * 7);
+  var sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  return { start: monday, end: sunday };
+}
+function weeklySelectWeek(v) { weeklySelectedWeek = v; }
+
+// ---- 页面渲染 ----
+function renderWeekly() {
+  var el = document.getElementById('weekly-content');
+  if (!el) return;
+  var weeks = _wkCollectWeeks();
+  if (!weeklySelectedWeek) weeklySelectedWeek = weeks[0] || getWeekKey(new Date());
+  var all = weeks.slice();
+  if (all.indexOf(weeklySelectedWeek) < 0) all.unshift(weeklySelectedWeek);
+  var opts = '';
+  all.forEach(function(w) {
+    opts += '<option value="' + w + '"' + (w === weeklySelectedWeek ? ' selected' : '') + '>' + w + '</option>';
+  });
+  var t = store.trialAnalysis;
+  var statusRows =
+    _wkSrcRow('工艺监察', !!supervisionData, supervisionData ? supervisionData.fileName : null) +
+    _wkSrcRow('技术员绩效', !!(store.techPerf && store.techPerf.people && store.techPerf.people.length), store.techPerf ? store.techPerf.fileName : null) +
+    _wkSrcRow('试模分析', !!(t && t.recs && t.recs.length), t && t.recs ? (t.dirName + '（' + t.recs.length + ' 条试模）') : null);
+  var html = '<div class="wk-toolbar">' +
+    '<span class="wk-tip">汇总三个模块数据，生成「' + weeklySelectedWeek + '」周报（工模数据为当前快照，试模/故障按周筛选）</span>' +
+    '<span class="wk-controls"><select class="form-select" style="min-width:110px" onchange="weeklySelectWeek(this.value)">' + opts + '</select></span>' +
+    '</div>';
+  if (weeklyReportHtml) {
+    html += '<div class="wk-frame-wrap" id="weekly-frame-wrap"></div>';
+  } else {
+    html += '<div class="wk-status">' + statusRows + '</div>' +
+      '<div style="text-align:center;padding:34px 0;color:var(--text-secondary);font-size:13px">' +
+      '点击右上角「一键生成周报」开始 · 生成后可在线预览、下载 HTML、打印成 PDF</div>';
+  }
+  el.innerHTML = html;
+  if (weeklyReportHtml) _wkMountIframe(weeklyReportHtml);
+  var dl = document.getElementById('weekly-dl-btn');
+  if (dl) dl.style.display = weeklyReportHtml ? '' : 'none';
+}
+function _wkSrcRow(name, ok, info) {
+  return '<div class="wk-status-card' + (ok ? ' ok' : '') + '">' +
+    '<div class="wk-src-name">' + name + (ok ? ' ✓' : ' —') + '</div>' +
+    '<div class="wk-src-state">' + (ok ? (info ? escapeHtml(info) : '已加载') : '未加载，对应章节将显示「未加载」') + '</div></div>';
+}
+
+// ---- 数据收集 ----
+function _wkGather(weekKey) {
+  var g = { week: weekKey, dates: _wkWeekDates(weekKey), sup: null, faults: null, products: null, tech: null, trial: null };
+  // 工艺监察：机台符合率（当前快照）
+  if (supervisionData && supervisionData.summary && supervisionData.summary.rows && supervisionData.summary.rows.length) {
+    var s = supervisionData.summary;
+    var machines = [];
+    s.rows.forEach(function(row) {
+      var name = s.machineCol >= 0 ? String(row[s.headers[s.machineCol]] || '').trim() : '';
+      var rate = s.rateCol >= 0 ? _parseRateValue(row[s.headers[s.rateCol]]) : NaN;
+      if (name) machines.push({ name: name, rate: isNaN(rate) ? null : rate });
+    });
+    var rated = machines.filter(function(m) { return m.rate != null; });
+    var avg = rated.length ? rated.reduce(function(a, m) { return a + m.rate; }, 0) / rated.length : null;
+    g.sup = {
+      fileName: supervisionData.fileName,
+      machines: machines, avg: avg,
+      red: rated.filter(function(m) { return m.rate < 80; }).length,
+      orange: rated.filter(function(m) { return m.rate >= 80 && m.rate < 95; }).length,
+      green: rated.filter(function(m) { return m.rate >= 95; }).length
+    };
+  }
+  // 设备故障（按周筛选）
+  if (supervisionData && supervisionData.faults && supervisionData.faults.sheetName) {
+    var f = supervisionData.faults;
+    var colDate = findSupCol(f.headers, [/日期$|日期时间|^date$/i]);
+    var colMachine = findSupCol(f.headers, [/机台|设备|machine|机号/i]);
+    var colFault = findSupCol(f.headers, [/故障内容|故障描述|故障现象|故障情况|故障原因|不良现象|异常描述|^故障$|反馈问题/]);
+    var weekRows = [];
+    f.rows.forEach(function(r) {
+      var dt = colDate ? parseSupDate(r[colDate]) : null;
+      var wk = dt ? getWeekKey(dt) : '未分类';
+      if (wk === weekKey) weekRows.push({
+        machine: colMachine ? String(r[colMachine] || '').trim() : '',
+        fault: colFault ? String(r[colFault] || '').trim() : ''
+      });
+    });
+    var byMachine = {};
+    weekRows.forEach(function(r) {
+      if (!r.machine) return;
+      if (!byMachine[r.machine]) byMachine[r.machine] = { count: 0, faults: [] };
+      byMachine[r.machine].count++;
+      if (r.fault) byMachine[r.machine].faults.push(r.fault);
+    });
+    var top = Object.keys(byMachine).map(function(k) { return { machine: k, count: byMachine[k].count, faults: byMachine[k].faults }; })
+      .sort(function(a, b) { return b.count - a.count; });
+    g.faults = { total: weekRows.length, top: top, unclassified: !colDate };
+  }
+  // 特殊产品清单
+  if (supervisionData && supervisionData.products && supervisionData.products.rows) {
+    g.products = supervisionData.products.rows.length;
+  }
+  // 技术员绩效（本月汇总快照）
+  if (store.techPerf && store.techPerf.people && store.techPerf.people.length) g.tech = store.techPerf;
+  // 试模分析（按周筛选）
+  var t = store.trialAnalysis;
+  if (t && t.recs && t.recs.length) {
+    var recs = t.recs.filter(function(r) {
+      if (!r.__dt) return false;
+      var w = _trialIsoWeek(new Date(r.__dt));
+      return w.year + '-W' + String(w.week).padStart(2, '0') === weekKey;
+    });
+    var molds = {}, machines = {};
+    var scrap = 0, cycleOver = 0, cycleN = 0, cycleSum = 0;
+    recs.forEach(function(r) {
+      molds[r['模具编号'] || ''] = 1; machines[r['机台名'] || ''] = 1;
+      if (r['调机报废'] != null) scrap += (r['调机报废'] || 0);
+      if (r['循环差异'] != null) { cycleN++; cycleSum += r['循环差异']; if (r['循环差异'] > 0) cycleOver++; }
+    });
+    var pairStats = [];
+    (t.pairs || []).forEach(function(p) {
+      var ups = 0, downs = 0, eqs = 0, missA = 0, missB = 0;
+      recs.forEach(function(r) {
+        var av = r[p.a], bv = r[p.b], dv = r[p.d];
+        if (av != null && bv != null) { if (dv > 0) ups++; else if (dv < 0) downs++; else eqs++; }
+        else if (av != null) missB++;
+        else if (bv != null) missA++;
+      });
+      pairStats.push({ label: p.d, ups: ups, downs: downs, eqs: eqs, missA: missA, missB: missB });
+    });
+    var trend = (t.weeks || []).map(function(w) {
+      return { key: String(w.label).split(' ')[0], count: w.count };
+    }).sort(function(a, b) { return a.key.localeCompare(b.key); });
+    g.trial = {
+      count: recs.length, moldCount: Object.keys(molds).length, machineCount: Object.keys(machines).length,
+      scrap: Math.round(scrap * 100) / 100,
+      cycleAvg: cycleN ? Math.round(cycleSum / cycleN * 10) / 10 : null,
+      cycleOver: cycleOver, pairStats: pairStats, trend: trend
+    };
+  }
+  return g;
+}
+function _wkTechErrTotal(p) {
+  return (p.errors || []).reduce(function(a, e) { return a + (e.count || 0); }, 0);
+}
+
+// ---- 自动提炼问题点 ----
+function _wkIssues(g) {
+  var out = [];
+  if (g.sup) {
+    g.sup.machines.filter(function(m) { return m.rate != null && m.rate < 80; })
+      .sort(function(a, b) { return a.rate - b.rate; })
+      .slice(0, 3)
+      .forEach(function(m) { out.push({ level: 'bad', text: m.name + '：符合率 ' + m.rate.toFixed(1) + '%（低于 80%），建议列入下周重点整改。' }); });
+  }
+  if (g.faults && g.faults.top) {
+    g.faults.top.filter(function(x) { return x.count >= 2; }).forEach(function(x) {
+      out.push({ level: 'bad', text: x.machine + '：本周故障 ' + x.count + ' 次' + (x.faults.length ? '（' + x.faults.slice(0, 2).join('、') + '）' : '') + '，建议联合设备科排查。' });
+    });
+  }
+  if (g.tech && g.tech.people && g.tech.people.length) {
+    var worst = g.tech.people.slice().sort(function(a, b) { return _wkTechErrTotal(b) - _wkTechErrTotal(a); })[0];
+    if (worst && _wkTechErrTotal(worst) >= 5) {
+      out.push({ level: 'warn', text: worst.name + '：本月不规范 ' + _wkTechErrTotal(worst) + ' 次居首，建议针对性复核其调机流程。' });
+    }
+  }
+  if (g.trial && g.trial.pairStats) {
+    g.trial.pairStats.forEach(function(p) {
+      if (p.ups >= 3 && p.ups > p.downs * 2) {
+        out.push({ level: 'warn', text: '「' + p.label + '」实际值超标准 ' + p.ups + ' 次（本周），建议排查相关机台参数设定。' });
+      }
+    });
+  }
+  if (!out.length) out.push({ level: 'good', text: '本周整体运行平稳，无突出异常项。' });
+  return out;
+}
+
+// ---- 生成独立 HTML 周报 ----
+var _WK_CSS = ''
++ '*{margin:0;padding:0;box-sizing:border-box}'
++ 'body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:#F5F4F0;color:#2C2C2A;line-height:1.65;font-size:13px}'
++ '.page{max-width:860px;margin:0 auto;padding:28px 34px 60px}'
++ '.rpt-head{background:#fff;border:1px solid #D8D6CC;border-radius:12px;padding:24px 28px;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px}'
++ '.rpt-head h1{font-size:22px;font-weight:700;letter-spacing:2px}'
++ '.rpt-head .sub{color:#5F5E5A;font-size:13px;margin-top:6px}'
++ '.rpt-head .meta{text-align:right;font-size:12px;color:#5F5E5A}'
++ '.rpt-head .meta b{color:#2C2C2A;font-size:15px}'
++ '.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin:18px 0}'
++ '.kpi{background:#fff;border:1px solid #D8D6CC;border-radius:10px;padding:12px 10px;text-align:center}'
++ '.kpi .v{font-size:22px;font-weight:700}.kpi .l{font-size:11px;color:#5F5E5A;margin-top:2px}'
++ '.kpi.red .v{color:#C0392B}.kpi.green .v{color:#2E7D32}.kpi.blue .v{color:#185FA5}'
++ 'section{background:#fff;border:1px solid #D8D6CC;border-radius:12px;padding:20px 24px;margin-bottom:18px}'
++ 'h2{font-size:15px;font-weight:700;padding-bottom:10px;border-bottom:2px solid #2C2C2A;margin-bottom:14px;display:flex;align-items:center;gap:10px}'
++ 'h2 .no{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:#2C2C2A;color:#fff;font-size:12px}'
++ 'h3{font-size:13px;font-weight:600;margin:14px 0 8px;color:#2C2C2A}'
++ 'table{width:100%;border-collapse:collapse;font-size:12px}'
++ 'th{background:#EFEDE6;padding:7px 9px;text-align:left;border-bottom:2px solid #D8D6CC;white-space:nowrap}'
++ 'td{padding:6px 9px;border-bottom:1px solid #D8D6CC}'
++ 'tr:last-child td{border-bottom:none}'
++ '.num{text-align:right;font-variant-numeric:tabular-nums}'
++ '.bad{color:#C0392B;font-weight:600}.good{color:#2E7D32;font-weight:600}.warn{color:#B8960F;font-weight:600}'
++ '.bar{height:9px;border-radius:5px;background:#EFEDE6;overflow:hidden;position:relative}'
++ '.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:5px}'
++ '.chart-row{display:flex;align-items:center;gap:10px;margin:5px 0}'
++ '.chart-row .cl{width:110px;text-align:right;font-size:12px;color:#5F5E5A;flex-shrink:0}'
++ '.chart-row .cv{width:52px;font-size:12px;font-weight:600;flex-shrink:0}'
++ '.chart-row .track{flex:1;height:16px;background:#F0EEE7;border-radius:4px;overflow:hidden}'
++ '.chart-row .track i{display:block;height:100%}'
++ '.fault-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:8px}'
++ '.fault-cell{border:1px solid #D8D6CC;border-radius:10px;padding:10px;text-align:center}'
++ '.fault-cell .fc-name{font-size:12px;color:#5F5E5A;word-break:break-all}'
++ '.fault-cell .fc-n{font-size:20px;font-weight:700;color:#C0392B;margin:2px 0}'
++ '.fault-cell .fc-sub{font-size:11px;color:#5F5E5A}'
++ '.dist-legend{display:flex;gap:16px;font-size:12px;color:#5F5E5A;margin-bottom:10px;flex-wrap:wrap}'
++ '.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}'
++ '.note-box{background:#FBF9F2;border:1px solid #E5DFC8;border-radius:8px;padding:12px 16px;font-size:12px;color:#5F5E5A;min-height:56px}'
++ '.insight{background:#EAF3DE;border-left:3px solid #2E7D32;padding:9px 14px;border-radius:0 8px 8px 0;margin:8px 0;font-size:12px}'
++ '.insight.warn{background:#FAEEDA;border-left-color:#B8960F}'
++ '.insight.bad{background:#FCEBEB;border-left-color:#C0392B}'
++ 'ul.tight{padding-left:20px}ul.tight li{margin:4px 0}'
++ '.empty-sec{color:#5F5E5A;font-size:12px;padding:8px 0}'
++ '.toolbar{position:fixed;right:22px;bottom:22px}'
++ '.toolbar button{border:none;border-radius:20px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15);background:#2C2C2A;color:#fff}'
++ '@media print{.toolbar{display:none}body{background:#fff}.page{padding:0;max-width:100%}section,.rpt-head{break-inside:avoid}}'
++ '@media (max-width:700px){.kpi-grid{grid-template-columns:repeat(3,1fr)}.fault-grid{grid-template-columns:repeat(2,1fr)}}';
+
+function _wkNum(v, suffix) {
+  return (v == null || isNaN(v)) ? '—' : v + (suffix || '');
+}
+function _wkRateCls(r) { return r < 80 ? 'bad' : (r < 95 ? 'warn' : 'good'); }
+function _wkRateColor(r) { return r < 80 ? '#C0392B' : (r < 95 ? '#B8960F' : '#2E7D32'); }
+
+function _wkBuildHtml(g) {
+  var E = escapeHtml;
+  var d = g.dates || {};
+  var fmtD = function(x) { return x ? (x.getMonth() + 1) + '月' + x.getDate() + '日' : ''; };
+  var m = String(g.week).match(/^(\d{4})-W(\d{2})$/);
+  var weekNo = m ? parseInt(m[2], 10) : '';
+  var h = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">'
+    + '<title>工艺周报 ' + g.week + '</title><style>' + _WK_CSS + '</style></head><body><div class="page">';
+
+  // 报告头
+  h += '<div class="rpt-head"><div><h1>注塑工艺周报</h1>'
+    + '<div class="sub">' + (m ? m[1] + ' 年第 ' + weekNo + ' 周' : g.week) + ' · ' + (fmtD(d.start) && fmtD(d.end) ? fmtD(d.start) + ' ~ ' + fmtD(d.end) : '') + '</div></div>'
+    + '<div class="meta"><div>数据来源 <b>工艺工作台</b></div><div style="margin-top:4px">制表日期 <b>' + new Date().toLocaleDateString('zh-CN') + '</b></div></div></div>';
+
+  // KPI
+  h += '<div class="kpi-grid">'
+    + '<div class="kpi blue"><div class="v">' + (g.sup ? g.sup.machines.length : '—') + '</div><div class="l">监察机台</div></div>'
+    + '<div class="kpi green"><div class="v">' + (g.sup && g.sup.avg != null ? g.sup.avg.toFixed(1) + '%' : '—') + '</div><div class="l">平均符合率</div></div>'
+    + '<div class="kpi red"><div class="v">' + (g.faults ? g.faults.total : '—') + '</div><div class="l">本周故障</div></div>'
+    + '<div class="kpi"><div class="v">' + (g.tech ? g.tech.people.length : '—') + '</div><div class="l">技术员</div></div>'
+    + '<div class="kpi blue"><div class="v">' + (g.trial ? g.trial.count : '—') + '</div><div class="l">本周试模</div></div>'
+    + '<div class="kpi"><div class="v">' + (g.trial ? g.trial.moldCount : '—') + '</div><div class="l">涉及模具</div></div>'
+    + '</div>';
+
+  // 一、工艺监察
+  h += '<section><h2><span class="no">一</span>工艺监察</h2>';
+  if (!g.sup) {
+    h += '<div class="empty-sec">未加载工艺监察数据（请先在「工艺监察」页上传 Excel）。</div>';
+  } else {
+    h += '<h3>机台符合率分布</h3><div class="dist-legend">'
+      + '<span><i class="dot" style="background:#C0392B"></i>&lt;80%（重点关注）' + g.sup.red + ' 台</span>'
+      + '<span><i class="dot" style="background:#B8960F"></i>80%~95%（观察）' + g.sup.orange + ' 台</span>'
+      + '<span><i class="dot" style="background:#2E7D32"></i>≥95%（正常）' + g.sup.green + ' 台</span></div>';
+    var worst = g.sup.machines.filter(function(x) { return x.rate != null; })
+      .sort(function(a, b) { return a.rate - b.rate; }).slice(0, 6);
+    if (worst.length) {
+      var maxBar = Math.max.apply(null, worst.map(function(x) { return x.rate; }));
+      h += '<table><tr><th>机台</th><th style="width:40%">符合率</th><th class="num">数值</th></tr>';
+      worst.forEach(function(x) {
+        h += '<tr><td>' + E(x.name) + '</td>'
+          + '<td><div class="bar"><i style="width:' + Math.max(10, Math.round(x.rate / (maxBar || 100) * 100)) + '%;background:' + _wkRateColor(x.rate) + '"></i></div></td>'
+          + '<td class="num ' + _wkRateCls(x.rate) + '">' + x.rate.toFixed(1) + '%</td></tr>';
+      });
+      h += '</table>';
+    }
+    h += '<h3>设备故障（本周 ' + (g.faults ? g.faults.total : '—') + ' 起）</h3>';
+    if (!g.faults) {
+      h += '<div class="empty-sec">未加载设备故障数据。</div>';
+    } else if (!g.faults.total) {
+      h += '<div class="insight">本周无故障记录。</div>';
+    } else {
+      h += '<div class="fault-grid">';
+      g.faults.top.slice(0, 4).forEach(function(x) {
+        h += '<div class="fault-cell"><div class="fc-name">' + E(x.machine) + '</div><div class="fc-n">' + x.count + '</div>'
+          + '<div class="fc-sub">' + E(x.faults.slice(0, 2).join('、')) + '</div></div>';
+      });
+      h += '</div>';
+      if (g.faults.top.length && g.faults.top[0].count >= 2) {
+        h += '<div class="insight bad" style="margin-top:10px">' + E(g.faults.top[0].machine) + ' 本周故障 ' + g.faults.top[0].count + ' 次，建议列入下周重点整备对象。</div>';
+      }
+    }
+    h += '<h3>特殊产品清单</h3><div style="font-size:12px;color:#5F5E5A">'
+      + (g.products != null ? '共跟踪特殊产品 ' + g.products + ' 项。' : '未加载特殊产品数据。') + '</div>';
+    if (g.faults && g.faults.unclassified) {
+      h += '<div style="font-size:11px;color:#8A8880;margin-top:8px">注：故障表未识别到日期列，以上统计为整月口径。</div>';
+    }
+  }
+  h += '</section>';
+
+  // 二、技术员绩效
+  h += '<section><h2><span class="no">二</span>技术员绩效（本月汇总）</h2>';
+  if (!g.tech) {
+    h += '<div class="empty-sec">未加载技术员绩效数据（请先在「技术员绩效」页上传 Excel）。</div>';
+  } else {
+    var ppl = g.tech.people.slice().sort(function(a, b) { return (b.score || 0) - (a.score || 0); });
+    h += '<table><tr><th>技术员</th><th class="num">监察次数</th>'
+      + '<th class="num">温差</th><th class="num">时间</th><th class="num">未接冰水</th><th class="num">成型温度</th>'
+      + '<th class="num">错误合计</th><th class="num">符合率</th><th class="num">得分</th></tr>';
+    ppl.forEach(function(p) {
+      var errT = _wkTechErrTotal(p);
+      var errMap = {}; (p.errors || []).forEach(function(e) { errMap[e.key] = e.count; });
+      var rateStr = (typeof p.rate === 'number') ? p.rate.toFixed(1) + '%' : (p.rate != null ? E(String(p.rate)) : '—');
+      h += '<tr><td>' + E(p.name) + '</td><td class="num">' + _wkNum(p.inspected) + '</td>'
+        + '<td class="num">' + _wkNum(errMap.temp) + '</td><td class="num">' + _wkNum(errMap.time) + '</td>'
+        + '<td class="num">' + _wkNum(errMap.ice) + '</td><td class="num">' + _wkNum(errMap.mold) + '</td>'
+        + '<td class="num ' + (errT >= 8 ? 'bad' : (errT >= 4 ? 'warn' : 'good')) + '">' + errT + '</td>'
+        + '<td class="num">' + rateStr + '</td><td class="num">' + _wkNum(p.score) + '</td></tr>';
+    });
+    h += '</table>';
+    var best = ppl[0], worstP = ppl[ppl.length - 1];
+    if (best && worstP && ppl.length > 1 && _wkTechErrTotal(worstP) > _wkTechErrTotal(best)) {
+      h += '<div class="insight" style="margin-top:10px">最佳：' + E(best.name) + '（不规范 ' + _wkTechErrTotal(best) + ' 次、得分 ' + _wkNum(best.score) + '）；'
+        + '需改进：' + E(worstP.name) + '（不规范 ' + _wkTechErrTotal(worstP) + ' 次、得分 ' + _wkNum(worstP.score) + '）。</div>';
+    }
+  }
+  h += '</section>';
+
+  // 三、试模分析
+  h += '<section><h2><span class="no">三</span>试模分析</h2>';
+  if (!g.trial) {
+    h += '<div class="empty-sec">未加载试模分析数据（请先在「试模分析」页选择文件夹）。</div>';
+  } else {
+    h += '<h3>周试模趋势</h3>';
+    var tr = g.trial.trend.slice(-8);
+    var maxC = Math.max.apply(null, [1].concat(tr.map(function(x) { return x.count; })));
+    tr.forEach(function(x) {
+      var cur = x.key === g.week;
+      h += '<div class="chart-row"><span class="cl">' + E(x.key) + (cur ? '（本周）' : '') + '</span>'
+        + '<span class="cv">' + x.count + ' 次</span>'
+        + '<div class="track"><i style="width:' + Math.max(8, Math.round(x.count / maxC * 100)) + '%;background:' + (cur ? '#185FA5' : '#85B7EB') + '"></i></div></div>';
+    });
+    h += '<p style="font-size:12px;color:#5F5E5A;margin-top:6px">本周试模 ' + g.trial.count + ' 次，涉及模具 ' + g.trial.moldCount + ' 套、机台 ' + g.trial.machineCount + ' 台'
+      + '；调机报废合计 <b style="color:#C0392B">' + g.trial.scrap + '</b>'
+      + (g.trial.cycleAvg != null ? '；循环差异平均 <b style="color:' + (g.trial.cycleAvg > 0 ? '#C0392B' : '#2E7D32') + '">' + (g.trial.cycleAvg > 0 ? '+' : '') + g.trial.cycleAvg + 's</b>（超标 ' + g.trial.cycleOver + ' 次）' : '')
+      + '。</p>';
+    if (g.trial.pairStats.length) {
+      h += '<h3>指标差异汇总（实际值 vs 标准值）</h3>';
+      h += '<table><tr><th>指标</th><th class="num">超耗 ↑</th><th class="num">省料 ↓</th><th class="num">持平 =</th><th class="num">缺实际</th><th class="num">缺标准</th></tr>';
+      g.trial.pairStats.forEach(function(p) {
+        var dom = (p.ups >= 3 && p.ups > p.downs * 2) ? '<span class="bad">偏高</span>' : ((p.downs >= 3 && p.downs > p.ups * 2) ? '<span class="good">偏低</span>' : '—');
+        h += '<tr><td>' + E(p.label) + '</td><td class="num ' + (p.ups >= 3 ? 'bad' : '') + '">' + p.ups + '</td>'
+          + '<td class="num">' + p.downs + '</td><td class="num">' + p.eqs + '</td>'
+          + '<td class="num">' + p.missA + '</td><td class="num">' + p.missB + '</td><td>' + dom + '</td></tr>';
+      });
+      h += '</table>';
+    }
+  }
+  h += '</section>';
+
+  // 四、问题与下周关注
+  var issues = _wkIssues(g);
+  h += '<section><h2><span class="no">四</span>问题与下周关注</h2><ul class="tight">';
+  issues.forEach(function(it) {
+    var cls = it.level === 'bad' ? 'style="color:#C0392B"' : (it.level === 'warn' ? 'style="color:#B8960F"' : '');
+    h += '<li ' + cls + '>' + E(it.text) + '</li>';
+  });
+  h += '</ul><h3>备注</h3><div class="note-box">（可手动补充：本周会议要点 / 客户反馈 / 其他待办事项……）</div></section>';
+
+  h += '</div><div class="toolbar"><button onclick="window.print()">🖨 打印 / 导出 PDF</button></div></body></html>';
+  return h;
+}
+
+// ---- 生成 / 挂载 / 下载 ----
+function generateWeeklyReport() {
+  var sel = document.querySelector('#weekly-content select');
+  if (sel && sel.value) weeklySelectedWeek = sel.value;
+  var weekKey = weeklySelectedWeek || getWeekKey(new Date());
+  var g = _wkGather(weekKey);
+  weeklyReportHtml = _wkBuildHtml(g);
+  var el = document.getElementById('weekly-content');
+  if (el) {
+    var keep = weeklySelectedWeek;
+    // 重绘（保留当前选择）
+    weeklySelectedWeek = keep;
+    var wrap = document.getElementById('weekly-frame-wrap');
+    if (!wrap) { renderWeekly(); }
+    else _wkMountIframe(weeklyReportHtml);
+  }
+  var dl = document.getElementById('weekly-dl-btn');
+  if (dl) dl.style.display = '';
+  showToast('✅ 已生成 ' + weekKey + ' 周报');
+}
+function _wkMountIframe(html) {
+  var wrap = document.getElementById('weekly-frame-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  var f = document.createElement('iframe');
+  f.setAttribute('title', '周报预览');
+  f.style.cssText = 'width:100%;border:0;display:block;background:#F5F4F0';
+  f.onload = function() {
+    try {
+      var b = f.contentDocument && f.contentDocument.body;
+      if (b) f.style.height = (b.scrollHeight + 30) + 'px';
+    } catch (e) { f.style.height = '1600px'; }
+  };
+  f.srcdoc = html;
+  wrap.appendChild(f);
+}
+function weeklyDownloadHtml() {
+  if (!weeklyReportHtml) { showToast('请先生成周报'); return; }
+  var blob = new Blob([weeklyReportHtml], { type: 'text/html;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '工艺周报-' + (weeklySelectedWeek || getWeekKey(new Date())) + '.html';
+  document.body.appendChild(a); a.click();
+  setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  showToast('✅ 周报已下载（可用浏览器打开、打印或转 PDF）');
 }
 
 // ========== Init ==========
