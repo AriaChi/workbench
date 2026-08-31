@@ -1177,6 +1177,46 @@ body.has-bg-image .page{background:transparent}
 .tp-cd-zero{color:#9AA0A6}
 .tp-type-chip{display:inline-block;padding:2px 10px;border-radius:10px;background:var(--yellow-light);color:#8a6d1a;font-size:12px;margin:1px 3px 1px 0}
 
+/* ========== 试模分析 ========== */
+.trial-empty{padding:60px 20px;text-align:center;color:var(--text-secondary);font-size:14px}
+.trial-empty .trial-empty-ico{font-size:44px;margin-bottom:12px}
+.trial-toolbar{background:var(--content-bg);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.trial-toolbar .trial-path{flex:1;min-width:240px;background:var(--bg);border:1px dashed var(--border);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--text)}
+.trial-toolbar .trial-path b{color:var(--accent)}
+.trial-stats{font-size:12.5px;color:var(--text-secondary)}
+.trial-stats span{margin-right:12px;white-space:nowrap}
+.trial-stats b{color:var(--accent)}
+.trial-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-bottom:16px}
+@media (max-width:1100px){.trial-grid{grid-template-columns:1fr}}
+.trial-card{background:var(--content-bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+.trial-card h2{font-size:15px;font-weight:600;margin-bottom:12px;color:var(--text);border-left:4px solid var(--accent);padding-left:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.trial-card h2 .badge{background:var(--accent-light);color:var(--accent);font-size:11px;padding:2px 8px;border-radius:8px;font-weight:400}
+.trial-table-wrap{overflow-x:auto}
+.trial-table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap}
+.trial-table th{background:var(--accent);color:#fff;padding:8px 6px;font-weight:600;text-align:center}
+.trial-table td{border:1px solid var(--border);padding:7px 6px;text-align:center}
+.trial-table tr:nth-child(even) td{background:var(--bg)}
+.trial-table tr:hover td{background:var(--accent-light)}
+.trial-table td.tk{font-weight:600;text-align:left;min-width:140px}
+.trial-table td.ts{text-align:left}
+.trial-up{color:#C0392B;font-weight:700}
+.trial-down{color:#2E8B57;font-weight:700}
+.trial-eq{color:#9AA0A6}
+.trial-miss{color:#D68910;font-weight:600}
+.trial-na{color:#B0B6BD}
+.trial-diff{font-size:12px}
+.trial-val{color:var(--text);font-weight:600}
+.trial-issue{color:#8E44AD;font-size:12px}
+.trial-chart{display:flex;align-items:flex-end;gap:22px;height:210px;padding:10px 8px 0;border-bottom:2px solid var(--border)}
+.trial-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;flex:1;min-width:56px}
+.trial-bar-num{font-size:15px;font-weight:700;color:var(--accent);margin-bottom:5px}
+.trial-bar{width:48px;background:linear-gradient(180deg,#3d8bd9,var(--accent));border-radius:4px 4px 0 0;min-height:2px}
+.trial-bar-label{font-size:11px;color:var(--text-secondary);margin-top:7px;text-align:center;white-space:nowrap}
+.trial-legend{display:flex;gap:16px;margin-top:10px;font-size:12.5px;flex-wrap:wrap;color:var(--text-secondary)}
+.trial-legend span{display:inline-flex;align-items:center;gap:4px}
+.trial-loading{display:flex;align-items:center;gap:10px;padding:30px;color:var(--text-secondary);font-size:13px;justify-content:center}
+.trial-spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:trial-spin .8s linear infinite}
+@keyframes trial-spin{to{transform:rotate(360deg)}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -1212,6 +1252,10 @@ if ('serviceWorker' in navigator) {
       <div class="nav-item" data-page="techperf">
         <svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
         技术员绩效
+      </div>
+      <div class="nav-item" data-page="trial">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M21 21H4a1 1 0 0 1-1-1V3"/><path d="M7 14l3-4 3 3 5-6"/></svg>
+        试模分析
       </div>
       <div class="nav-section-label">公共能力</div>
       <div class="nav-item" data-page="inbox">
@@ -1298,6 +1342,33 @@ if ('serviceWorker' in navigator) {
       </div>
       <input type="file" id="techperf-excel-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="onTechPerfExcelSelected(this)">
       <div id="techperf-content"></div>
+    </div>
+
+    <!-- Page: 试模分析 -->
+    <div class="page hidden" id="page-trial">
+      <div class="page-header">
+        <div class="page-title">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M21 21H4a1 1 0 0 1-1-1V3"/><path d="M7 14l3-4 3 3 5-6"/></svg>
+          试模分析
+          <span class="help-btn" onclick="event.stopPropagation();this.classList.toggle('show-tip')">?<span class="help-tooltip">选择文件夹，读取其中全部 MES汇总_*.xlsx（格式相同）→ BD列(称重照片)非空 → 按工单号去重 → 得试模数据；差异 = 实际 − 标准（↑红超耗 / ↓绿省料）。支持导出 Excel。</span></span>
+        </div>
+        <div class="flex gap-8">
+          <button class="btn btn-outline btn-sm" onclick="trialSelectFolder()">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            选择文件夹
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="trialRefresh()" id="trial-refresh-btn" style="display:none" title="重新扫描文件夹并合并所有 MES汇总 文件">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            刷新抓取
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="trialExportExcel()" id="trial-export-btn" style="display:none" title="导出处理后的数据为 Excel（试模明细/差异汇总/周统计）">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            导出 Excel
+          </button>
+        </div>
+      </div>
+      <input type="file" id="trial-files-input" accept=".xlsx,.xls" multiple style="display:none" onchange="onTrialFilesSelected(this)">
+      <div id="trial-content"></div>
     </div>
 
     <!-- Page: Inbox -->
@@ -1402,6 +1473,9 @@ if (store.mesMaterialData == null) store.mesMaterialData = null;
 if (store.mesWeightData == null) store.mesWeightData = null;
 if (store.mesTrialData == null) store.mesTrialData = null;
 if (store.techPerf == null) store.techPerf = null;
+if (store.trialAnalysis == null) store.trialAnalysis = null; // 试模分析模块（去重后结果，体积小可持久化）
+// 试模分析：文件夹句柄仅存内存（不可序列化）
+var _trialDirHandle = null;
 
 function loadStore() {
   try {
@@ -1430,6 +1504,7 @@ function loadStore() {
     mesWeightData: null,
     mesTrialData: null,
     techPerf: null,
+    trialAnalysis: null,
   };
 }
 function saveStore() {
@@ -1641,11 +1716,11 @@ function showToast(msg) {
 // ========== Navigation ==========
 const pageTitles = {
   supervision: '工艺监察',
-  techperf: '技术员绩效',
+  techperf: '技术员绩效', trial: '试模分析',
   inbox: '知识碎片', search: '搜索', settings: '设置与数据',
   more: '更多'
 };
-const navOrder = ['supervision','techperf','inbox','search','settings'];
+const navOrder = ['supervision','techperf','trial','inbox','search','settings'];
 
 function navigate(page) {
   if (page === 'more') { openDrawer(); return; }
@@ -1671,6 +1746,7 @@ function openDrawer() {
   const items = [
     {page:'supervision',label:'工艺监察',icon:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'},
     {page:'techperf',label:'技术员绩效',icon:'<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>'},
+    {page:'trial',label:'试模分析',icon:'<path d="M21 21H4a1 1 0 0 1-1-1V3"/><path d="M7 14l3-4 3 3 5-6"/>'},
     {page:'inbox',label:'知识碎片',icon:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'},
     {page:'search',label:'搜索',icon:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>'},
     {page:'settings',label:'设置与数据',icon:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'}
@@ -1743,6 +1819,7 @@ document.getElementById('modal-overlay').addEventListener('click', (e) => {
 function renderPage(page) {
   if (page === 'supervision') renderSupervision();
   else if (page === 'techperf') renderTechPerf();
+  else if (page === 'trial') renderTrial();
   else if (page === 'inbox') renderInbox();
   else if (page === 'search') { /* 静态页：搜索框 oninput 直接调用 doSearch */ }
   else if (page === 'settings') renderSettings();
@@ -5788,6 +5865,417 @@ function initSampleData() {
     store.inbox.push({id:uid(), type:'文字', content:'下周需要跟进供应商的材料检测报告', date:todayStr()});
     saveStore();
   }
+}
+
+// ========== 试模分析模块 ==========
+// 列位置（0 基）：B=1 工单号；AK~BB 成对（实际在前/标准在后）；BD=55 称重照片；BI=60 试模问题
+var TRIAL_PAIR_IDX = [[36,37],[38,39],[40,41],[42,43],[44,45],[46,47],[48,49],[50,51],[52,53]];
+var TRIAL_BD_IDX = 55;
+
+function _trialNum(v) {
+  if (v === null || v === undefined) return null;
+  var s = String(v).replace(/,/g, '').trim();
+  if (s === '' || /^(nan|none|null|inf|-inf)$/i.test(s)) return null;
+  var f = parseFloat(s);
+  if (!isFinite(f)) return null;
+  if (f !== f) return null;
+  return f;
+}
+function _trialFmt(v) { // %g 风格
+  if (typeof v !== 'number') return String(v);
+  return String(parseFloat(v.toPrecision(12)));
+}
+function _trialDiffName(an) { return an.replace('(实际值)', '').trim() + '(差异)'; }
+function _trialEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _trialColIdx(headers, name) {
+  for (var i = 0; i < headers.length; i++) if (String(headers[i]).trim() === name) return i;
+  return -1;
+}
+function _trialParseDate(s) {
+  if (s === null || s === undefined) return null;
+  var str = String(s).trim();
+  if (!str) return null;
+  var m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+  var n = _trialNum(str);
+  if (n !== null && n > 20000 && n < 80000) { // Excel 序列日期
+    var d = new Date(Math.round((n - 25569) * 86400000));
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  }
+  return null;
+}
+function _trialIsoWeek(dt) {
+  var t = new Date(Date.UTC(dt.getFullYear(), dt.getMonth(), dt.getDate()));
+  var day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  var yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  var week = Math.ceil((((t - yearStart) / 86400000) + 1) / 7);
+  return { year: t.getUTCFullYear(), week: week };
+}
+
+// 渲染试模分析页
+function renderTrial() {
+  var el = document.getElementById('trial-content');
+  if (!el) return;
+  var t = store.trialAnalysis;
+  var hasExport = !!(t && t.recs && t.recs.length);
+  var refreshBtn = document.getElementById('trial-refresh-btn');
+  if (refreshBtn) refreshBtn.style.display = (t && t.files && t.files.length) ? '' : 'none';
+  var exportBtn = document.getElementById('trial-export-btn');
+  if (exportBtn) exportBtn.style.display = hasExport ? '' : 'none';
+  if (!t || !t.recs || !t.recs.length) {
+    el.innerHTML = '<div class="trial-empty"><div class="trial-empty-ico">📊</div>' +
+      '<div><b>试模分析</b></div><div style="margin-top:6px">点击右上角「选择文件夹」，读取其中全部 MES汇总_*.xlsx（格式相同）<br>→ BD列(称重照片)非空 → 按工单号去重 → 试模数据与差异分析</div>' +
+      '<div style="margin-top:10px;font-size:12.5px;color:var(--text-secondary)">差异 = 实际 − 标准（↑红超耗 / ↓绿省料）· 支持导出 Excel</div></div>';
+    return;
+  }
+  var pairs = t.pairs, recs = t.recs;
+  // ---- 工具条：路径 + 统计 ----
+  var html = '<div class="trial-toolbar">' +
+    '<div class="trial-path">📁 已选择文件夹：<b>' + _trialEsc(t.dirName) + '</b>（共 <b>' + t.files.length + '</b> 个文件' +
+    (t.updatedAt ? ' · 抓取于 ' + new Date(t.updatedAt).toLocaleString('zh-CN') : '') + '）</div>' +
+    '<div class="trial-stats"><span>合并行 <b>' + t.mergedRows + '</b></span><span>BD非空 <b>' + t.bdCount + '</b></span>' +
+    '<span>去重后试模 <b>' + recs.length + '</b></span><span>模具 <b>' + t.moldCount + '</b></span><span>机台 <b>' + t.machineCount + '</b></span></div></div>';
+  // ---- ① 差异汇总表 ----
+  html += '<div class="trial-grid"><div class="trial-card"><h2>① BOM 重量差异汇总（实际 − 标准）<span class="badge">' + pairs.length + ' 项指标</span></h2><div class="trial-table-wrap"><table class="trial-table"><thead><tr><th>指标</th><th>超耗 ↑</th><th>省料 ↓</th><th>持平 =</th><th>缺实际值</th><th>缺标准值</th><th>均无</th></tr></thead><tbody>';
+  t.summary.forEach(function(s) {
+    html += '<tr><td class="tk">' + _trialEsc(s['指标']) + '</td><td class="trial-up">' + s['超耗↑'] + '</td><td class="trial-down">' + s['省料↓'] + '</td><td class="trial-eq">' + s['持平='] + '</td><td class="trial-miss">' + s['缺实际值'] + '</td><td class="trial-miss">' + s['缺标准值'] + '</td><td class="trial-na">' + s['均无'] + '</td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+  // ---- ② 周条形图 ----
+  var maxc = 1;
+  t.weeks.forEach(function(w) { if (w.count > maxc) maxc = w.count; });
+  html += '<div class="trial-card"><h2>② 试模次数趋势（按周）<span class="badge">' + t.weeks.length + ' 周</span></h2><div class="trial-chart">';
+  if (!t.weeks.length) html += '<div style="color:var(--text-secondary);font-size:13px;margin:auto">无有效日期数据</div>';
+  t.weeks.forEach(function(w) {
+    var h = Math.max(2, Math.round(w.count / maxc * 100));
+    html += '<div class="trial-bar-col"><div class="trial-bar-num">' + w.count + '</div>' +
+      '<div class="trial-bar" style="height:' + h + '%" title="' + _trialEsc(w.label) + '：试模 ' + w.count + ' 次 / ' + w.molds + ' 套模具"></div>' +
+      '<div class="trial-bar-label">' + _trialEsc(w.label) + '</div></div>';
+  });
+  html += '</div></div></div>';
+  // ---- ③ 明细表 ----
+  html += '<div class="trial-card"><h2>③ 试模明细（去重后 ' + recs.length + ' 条 · 每格：实际值 / 差异）</h2><div class="trial-table-wrap"><table class="trial-table"><thead><tr><th>工单号</th><th>模具编号</th><th>产品名称</th><th>机台</th><th>试模日期</th><th>循环时间(实际/标准)</th><th>试模问题</th><th>调机人</th>';
+  pairs.forEach(function(p) { html += '<th>' + _trialEsc(p.d) + '</th>'; });
+  html += '</tr></thead><tbody>';
+  recs.forEach(function(r) {
+    html += '<tr><td class="tk">' + _trialEsc(r['工单号']) + '</td><td class="ts" title="' + _trialEsc(r['模具编号']) + '">' + _trialEsc(r['模具编号']) + '</td><td class="ts">' + _trialEsc(r['产品名称']) + '</td><td>' + _trialEsc(r['机台名']) + '</td><td>' + _trialEsc(r['试模日期']) + '</td>';
+    // 循环时间
+    var cy = r['循环时间'], st = r['标准周期'];
+    if (cy === null && st === null) html += '<td class="trial-na">无数据</td>';
+    else {
+      var cs = cy !== null ? _trialFmt(cy) : '—', ss = st !== null ? _trialFmt(st) : '—';
+      var tag;
+      if (cy !== null && st !== null) {
+        var d = Math.round((cy - st) * 10) / 10;
+        if (d > 0) tag = '<span class="trial-up">↑ +' + _trialFmt(d) + 's</span>';
+        else if (d < 0) tag = '<span class="trial-down">↓ ' + _trialFmt(d) + 's</span>';
+        else tag = '<span class="trial-eq">= 0</span>';
+      } else if (cy !== null) tag = '<span class="trial-miss">缺标准</span>';
+      else tag = '<span class="trial-miss">缺实际</span>';
+      html += '<td class="trial-diff">' + cs + ' / ' + ss + ' ' + tag + '</td>';
+    }
+    // 试模问题（照片文件名列表，超 2 项截断）
+    var iss = r['试模问题'];
+    if (!iss) html += '<td class="trial-na">—</td>';
+    else {
+      var parts = String(iss).split(',').filter(function(x){return x.trim();});
+      var shown = parts.length <= 2 ? String(iss).slice(0, 40) : parts[0].slice(0, 20) + ' 等' + parts.length + '项';
+      html += '<td><span class="trial-issue" title="' + _trialEsc(iss) + '">' + _trialEsc(shown) + '</span></td>';
+    }
+    html += '<td style="font-weight:600">' + _trialEsc(r['调机人']) + '</td>';
+    pairs.forEach(function(p) {
+      var av = r[p.a], bv = r[p.b], dv = r[p.d];
+      var act = av !== null ? '<span class="trial-val">' + _trialFmt(av) + '</span>' : '<span class="trial-na">—</span>';
+      var diff;
+      if (av !== null && bv !== null) {
+        if (dv > 0) diff = '<span class="trial-up">↑ +' + _trialFmt(dv) + '</span>';
+        else if (dv < 0) diff = '<span class="trial-down">↓ ' + _trialFmt(dv) + '</span>';
+        else diff = '<span class="trial-eq">= 0</span>';
+      } else if (av !== null) diff = '<span class="trial-miss">缺标准值</span>';
+      else if (bv !== null) diff = '<span class="trial-miss">缺实际值</span>';
+      else diff = '<span class="trial-na">无数据</span>';
+      html += '<td class="trial-diff">' + act + ' / ' + diff + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div><div class="trial-legend">' +
+    '<span><span class="trial-up">↑ 超耗 / 超时</span></span><span><span class="trial-down">↓ 省料 / 提前</span></span>' +
+    '<span><span class="trial-eq">= 持平</span></span><span><span class="trial-miss">缺标准值 / 缺实际值</span></span>' +
+    '<span><span class="trial-na">— / 无数据</span></span></div></div>';
+  el.innerHTML = html;
+}
+
+// 选择文件夹（Chrome/Edge: showDirectoryPicker；其他环境回退多文件选择）
+async function trialSelectFolder() {
+  if (window.showDirectoryPicker) {
+    try {
+      var dir = await window.showDirectoryPicker({ id: 'trial-mes', mode: 'read' });
+      _trialDirHandle = dir;
+      await _trialScanDir(dir);
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // 用户取消
+      console.warn('[trial] showDirectoryPicker failed, fallback to file input:', e);
+    }
+  }
+  document.getElementById('trial-files-input').click();
+}
+function onTrialFilesSelected(input) {
+  var files = [];
+  for (var i = 0; i < input.files.length; i++) files.push(input.files[i]);
+  input.value = '';
+  if (!files.length) return;
+  _trialLoadFiles(files, files.length === 1 ? files[0].name.replace(/\.(xlsx|xls)$/i, '') + '（单文件）' : files.length + ' 个所选文件');
+}
+
+// 刷新抓取：用文件夹句柄重新扫描
+async function trialRefresh() {
+  if (_trialDirHandle) {
+    try { await _trialScanDir(_trialDirHandle); return; }
+    catch (e) {
+      showToast('重新扫描失败：' + (e && e.message ? e.message : e));
+      console.error('[trial] refresh failed:', e);
+    }
+  } else if (store.trialAnalysis && store.trialAnalysis.files && store.trialAnalysis.files.length) {
+    showToast('文件夹授权已失效（浏览器刷新后需重新选择），请重新选择文件夹');
+  } else {
+    showToast('请先选择文件夹');
+  }
+}
+
+// 扫描目录下所有 xlsx 并合并
+async function _trialScanDir(dir) {
+  var files = [], names = [];
+  for await (var entry of dir.values()) {
+    if (entry.kind === 'file' && /\.(xlsx|xls)$/i.test(entry.name) && !/^~\$/.test(entry.name)) {
+      files.push(await entry.getFile()); names.push(entry.name);
+    }
+  }
+  if (!files.length) { showToast('文件夹内没有 Excel 文件（.xlsx / .xls）'); return; }
+  files.sort(function(a, b) { return a.name.localeCompare(b.name, 'zh-CN', { numeric: true }); });
+  await _trialLoadFiles(files, dir.name);
+}
+
+// 核心：读取多文件 → 合并 → BD非空 → 工单号去重 → 差异计算 → 汇总/周统计（返回完成 Promise）
+function _trialLoadFiles(files, dirName) {
+  return new Promise(function(resolve) {
+    showToast('正在读取 ' + files.length + ' 个文件…');
+    var content = document.getElementById('trial-content');
+    if (content) content.innerHTML = '<div class="trial-loading"><div class="trial-spinner"></div>正在解析 ' + files.length + ' 个文件，合并去重中…</div>';
+    ensureXLSX(function(err) {
+      if (err) { showToast('XLSX 库加载失败，请检查网络后重试'); renderTrial(); resolve(); return; }
+      _trialParseFiles(files, dirName).then(resolve, function(e) {
+        console.error('[trial] load failed:', e);
+        showToast('解析失败：' + (e && e.message ? e.message : e));
+        renderTrial(); resolve();
+      });
+    });
+  });
+}
+async function _trialParseFiles(files, dirName) {
+  {
+    {
+      try {
+        var headers = null, allRows = [], fileNames = [];
+        for (var fi = 0; fi < files.length; fi++) {
+          var buf = await files[fi].arrayBuffer();
+          var wb = XLSX.read(buf, { type: 'array' });
+          var ws = wb.Sheets[wb.SheetNames[0]];
+          if (!ws) continue;
+          var aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+          if (!aoa.length) continue;
+          fileNames.push(files[fi].name);
+          if (!headers) headers = aoa[0].map(function(x) { return String(x == null ? '' : x).trim(); });
+          for (var ri = 1; ri < aoa.length; ri++) allRows.push(aoa[ri]);
+        }
+        if (!headers || !allRows.length) { showToast('没有读到数据行'); renderTrial(); return; }
+        // 基础字段列定位
+        var baseCols = {};
+        ['工单号','模具编号','产品编号','产品名称','机台名','记录时间','循环时间(s)','标准周期','试模问题','调机人','调机报废数量'].forEach(function(n) {
+          baseCols[n] = _trialColIdx(headers, n);
+        });
+        var pairs = [];
+        TRIAL_PAIR_IDX.forEach(function(pr) {
+          var an = headers[pr[0]] || ('第' + (pr[0] + 1) + '列');
+          var bn = headers[pr[1]] || ('第' + (pr[1] + 1) + '列');
+          pairs.push({ a: an, b: bn, d: _trialDiffName(an), ai: pr[0], bi: pr[1] });
+        });
+        // BD 非空 → 工单号去重（keep first）
+        var bdCount = 0, seen = {}, recs = [];
+        for (var i = 0; i < allRows.length; i++) {
+          var row = allRows[i];
+          var bd = row[TRIAL_BD_IDX];
+          if (bd === undefined || bd === null || String(bd).trim() === '') continue;
+          bdCount++;
+          var wo = baseCols['工单号'] >= 0 ? row[baseCols['工单号']] : row[1];
+          var key = String(wo == null ? '' : wo).trim();
+          if (!key || seen[key]) continue;
+          seen[key] = true;
+          var rec = { '工单号': key };
+          ['模具编号','产品编号','产品名称','机台名','试模问题','调机人'].forEach(function(n) {
+            var ci = baseCols[n];
+            rec[n] = ci >= 0 && row[ci] != null ? String(row[ci]).trim() : '';
+          });
+          var dt = baseCols['记录时间'] >= 0 ? _trialParseDate(row[baseCols['记录时间']]) : null;
+          rec['试模日期'] = dt ? dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2) : '';
+          rec['循环时间'] = baseCols['循环时间(s)'] >= 0 ? _trialNum(row[baseCols['循环时间(s)']]) : null;
+          rec['标准周期'] = baseCols['标准周期'] >= 0 ? _trialNum(row[baseCols['标准周期']]) : null;
+          rec['循环差异'] = (rec['循环时间'] !== null && rec['标准周期'] !== null) ? Math.round((rec['循环时间'] - rec['标准周期']) * 10) / 10 : null;
+          rec['调机报废'] = baseCols['调机报废数量'] >= 0 ? _trialNum(row[baseCols['调机报废数量']]) : null;
+          rec['__dt'] = dt ? dt.getTime() : null;
+          pairs.forEach(function(p) {
+            var av = _trialNum(row[p.ai]), bv = _trialNum(row[p.bi]);
+            rec[p.a] = av; rec[p.b] = bv;
+            rec[p.d] = (av !== null && bv !== null) ? Math.round((av - bv) * 10000) / 10000 : null;
+          });
+          recs.push(rec);
+        }
+        recs.sort(function(a, b) { return (a['__dt'] || 0) - (b['__dt'] || 0); });
+        // 差异汇总
+        var summary = [];
+        pairs.forEach(function(p) {
+          var ups = 0, downs = 0, eqs = 0, missA = 0, missB = 0, both = 0;
+          recs.forEach(function(r) {
+            var ha = r[p.a] !== null, hb = r[p.b] !== null;
+            if (ha && hb) { if (r[p.d] > 0) ups++; else if (r[p.d] < 0) downs++; else eqs++; }
+            else if (ha) missB++;
+            else if (hb) missA++;
+            else both++;
+          });
+          summary.push({ '指标': p.d, '超耗↑': ups, '省料↓': downs, '持平=': eqs, '缺实际值': missA, '缺标准值': missB, '均无': both });
+        });
+        // 周聚合（ISO 周）
+        var wk = {};
+        recs.forEach(function(r) {
+          if (!r['__dt']) return;
+          var d = new Date(r['__dt']);
+          var w = _trialIsoWeek(d);
+          var label = w.year + '-W' + ('0' + w.week).slice(-2);
+          if (!wk[label]) wk[label] = { start: null, end: null, count: 0, molds: {} };
+          var o = wk[label];
+          o.count++;
+          o.molds[r['模具编号'] || ''] = 1;
+          var ds = r['试模日期'];
+          if (ds) { if (!o.start || ds < o.start) o.start = ds; if (!o.end || ds > o.end) o.end = ds; }
+        });
+        var weeks = [];
+        Object.keys(wk).sort().forEach(function(label) {
+          var o = wk[label];
+          weeks.push({ label: label + (o.start ? '  (' + o.start + '~' + o.end + ')' : ''), count: o.count, molds: Object.keys(o.molds).length });
+        });
+        var moldsSet = {}, machinesSet = {};
+        recs.forEach(function(r) { moldsSet[r['模具编号'] || ''] = 1; machinesSet[r['机台名'] || ''] = 1; });
+        store.trialAnalysis = {
+          dirName: dirName, files: fileNames, headers: headers,
+          mergedRows: allRows.length, bdCount: bdCount,
+          pairs: pairs.map(function(p) { return { a: p.a, b: p.b, d: p.d }; }),
+          recs: recs, summary: summary, weeks: weeks,
+          moldCount: Object.keys(moldsSet).length, machineCount: Object.keys(machinesSet).length,
+          updatedAt: Date.now()
+        };
+        saveStore();
+        renderTrial();
+        showToast('试模分析完成：合并 ' + allRows.length + ' 行 → BD非空 ' + bdCount + ' → 去重后 ' + recs.length + ' 条试模');
+      } catch (e) {
+        throw e; // 交给 _trialLoadFiles 统一处理
+      }
+    }
+  }
+}
+
+// 导出 Excel（试模数据汇总-MM-DD.xlsx：试模明细 / 差异汇总 / 周试模统计）
+function trialExportExcel() {
+  var t = store.trialAnalysis;
+  if (!t || !t.recs || !t.recs.length) { showToast('没有可导出的试模数据'); return; }
+  ensureExcelJS(function(err) {
+    if (err) { showToast('ExcelJS 库加载失败，无法导出（请检查网络后重试）'); return; }
+    try {
+      var pairs = t.pairs, recs = t.recs;
+      var wb = new ExcelJS.Workbook();
+      wb.creator = '工艺文员工作台'; wb.created = new Date();
+      function thinBorder() {
+        return { top:{style:'thin',color:{argb:'FFD0D8E0'}}, left:{style:'thin',color:{argb:'FFD0D8E0'}}, bottom:{style:'thin',color:{argb:'FFD0D8E0'}}, right:{style:'thin',color:{argb:'FFD0D8E0'}} };
+      }
+      function center(c) { c.alignment = { horizontal:'center', vertical:'middle' }; c.border = thinBorder(); }
+      function hdr(c) { c.font = { bold:true, color:{argb:'FFFFFFFF'} }; c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1F4E79'} }; center(c); }
+      function valCell(c, v) {
+        if (typeof v === 'number') { c.value = v; c.font = { color:{argb:'FF2C3E50'}, bold:true }; }
+        else { c.value = (v === null || v === undefined || v === '') ? '' : String(v); c.font = { color:{argb:'FF555555'} }; }
+        center(c);
+      }
+      function diffCell(c, v) {
+        if (typeof v === 'number') {
+          c.value = v;
+          if (v > 0) c.font = { color:{argb:'FFC0392B'}, bold:true };
+          else if (v < 0) c.font = { color:{argb:'FF27AE60'}, bold:true };
+          else c.font = { color:{argb:'FF95A5A6'} };
+        } else { c.value = v ? String(v) : ''; c.font = { color:{argb:'FFD68910'}, bold:true }; }
+        center(c);
+      }
+      // Sheet1 试模明细
+      var ws = wb.addWorksheet('试模明细', { views:[{ state:'frozen', ySplit:1 }] });
+      var head = ['工单号','模具编号','产品编号','产品名称','机台名','试模日期','循环时间(s)','标准周期(s)','循环差异(s)','试模问题','调机人','调机报废数量'];
+      pairs.forEach(function(p) { head.push(p.a, p.b, p.d); });
+      var hr = ws.addRow(head); hr.eachCell(hdr);
+      recs.forEach(function(r) {
+        var row = [r['工单号'], r['模具编号'], r['产品编号'], r['产品名称'], r['机台名'], r['试模日期'], r['循环时间'], r['标准周期'], null, r['试模问题'], r['调机人'], r['调机报废']];
+        pairs.forEach(function(p) { row.push(r[p.a], r[p.b], r[p.d]); });
+        var xr = ws.addRow(row);
+        xr.eachCell(function(c) { valCell(c, c.value); });
+        var cyd = r['循环差异'];
+        if (typeof cyd === 'number') diffCell(xr.getCell(9), cyd);
+        else { xr.getCell(9).value = '无数据'; diffCell(xr.getCell(9), '无数据'); }
+        for (var i = 0; i < pairs.length; i++) {
+          var dv = r[pairs[i].d];
+          if (typeof dv === 'number') diffCell(xr.getCell(15 + i*3), dv);
+          else {
+            var av = r[pairs[i].a], bv = r[pairs[i].b];
+            var lbl = (av === null || av === undefined) ? ((bv !== null && bv !== undefined) ? '缺实际值' : '无数据') : '缺标准值';
+            diffCell(xr.getCell(15 + i*3), lbl);
+          }
+        }
+      });
+      [2,4,5,6,10,11,12].forEach(function(i) { ws.getColumn(i).width = 14; });
+      ws.getColumn(1).width = 20; ws.getColumn(3).width = 18;
+      [7,8,9].forEach(function(i) { ws.getColumn(i).width = 12; });
+      pairs.forEach(function(p, i) { ws.getColumn(13 + i*3).width = 16; ws.getColumn(14 + i*3).width = 16; ws.getColumn(15 + i*3).width = 16; });
+      // Sheet2 差异汇总
+      var ws2 = wb.addWorksheet('差异汇总');
+      var hr2 = ws2.addRow(['指标','超耗↑','省料↓','持平=','缺实际值','缺标准值','均无']);
+      hr2.eachCell(hdr);
+      t.summary.forEach(function(s) {
+        var xr2 = ws2.addRow([s['指标'], s['超耗↑'], s['省料↓'], s['持平='], s['缺实际值'], s['缺标准值'], s['均无']]);
+        xr2.eachCell(function(c) { valCell(c, c.value); });
+      });
+      ws2.getColumn(1).width = 24; [2,3,4,5,6,7].forEach(function(i) { ws2.getColumn(i).width = 12; });
+      // Sheet3 周试模统计
+      var ws3 = wb.addWorksheet('周试模统计');
+      var hr3 = ws3.addRow(['周','试模次数','模具数']);
+      hr3.eachCell(hdr);
+      t.weeks.forEach(function(w) {
+        var xr3 = ws3.addRow([w.label, w.count, w.molds]);
+        xr3.eachCell(function(c) { valCell(c, c.value); });
+      });
+      ws3.getColumn(1).width = 30; ws3.getColumn(2).width = 12; ws3.getColumn(3).width = 10;
+      // 下载
+      wb.xlsx.writeBuffer().then(function(buf) {
+        var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        var d = new Date(), p2 = function(n) { return (n < 10 ? '0' : '') + n; };
+        var fn = '试模数据汇总-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + '.xlsx';
+        if (window.navigator && window.navigator.msSaveOrOpenBlob) { window.navigator.msSaveOrOpenBlob(blob, fn); return; }
+        var a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = URL.createObjectURL(blob); a.download = fn;
+        document.body.appendChild(a); a.click();
+        setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+        showToast('已导出：' + fn);
+      }).catch(function(e) { console.error('[trial] export failed:', e); showToast('导出失败：' + (e && e.message ? e.message : e)); });
+    } catch (e) {
+      console.error('[trial] export error:', e);
+      showToast('导出失败：' + (e && e.message ? e.message : e));
+    }
+  });
 }
 
 // ========== Init ==========
