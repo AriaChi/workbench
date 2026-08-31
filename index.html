@@ -1392,12 +1392,16 @@ if ('serviceWorker' in navigator) {
         <div class="page-title">
           <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           周报
-          <span class="help-btn" onclick="event.stopPropagation();this.classList.toggle('show-tip')">?<span class="help-tooltip">一键汇总「工艺监察 / 技术员绩效 / 试模分析」三个模块的数据，生成周报。可在线预览、下载 HTML 或打印成 PDF。工模数据为当前快照，试模数据按所选周筛选。</span></span>
+          <span class="help-btn" onclick="event.stopPropagation();this.classList.toggle('show-tip')">?<span class="help-tooltip">一键汇总「工艺监察 / 技术员绩效 / 试模分析」三个模块的数据，生成周报。可在线预览、下载 HTML、导出 PPT 或打印成 PDF。工模数据为当前快照，试模数据按所选周筛选。</span></span>
         </div>
         <div class="flex gap-8">
           <button class="btn btn-outline btn-sm" onclick="weeklyDownloadHtml()" id="weekly-dl-btn" style="display:none" title="下载独立 HTML 周报文件（可浏览器打开、打印或转 PDF）">
             <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             下载周报
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="weeklyDownloadPpt()" id="weekly-ppt-btn" style="display:none" title="下载 PowerPoint 格式周报（6 页：封面KPI/工艺监察/故障/绩效/试模/问题关注）">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M2 3h20v13H2z" fill="none"/><path d="M7 21h10"/><path d="M12 16v5"/></svg>
+            下载PPT
           </button>
           <button class="btn btn-primary btn-sm" onclick="generateWeeklyReport()">
             <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -4912,6 +4916,16 @@ function ensureJSZip(cb) {
   document.head.appendChild(s);
 }
 
+// ========== PptxGenJS（周报导出 PPT） ==========
+function ensurePptxGenJS(cb) {
+  if (window.PptxGenJS) { cb(null); return; }
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
+  s.onload = function(){ cb(null); };
+  s.onerror = function(){ cb('PptxGenJS library load failed'); };
+  document.head.appendChild(s);
+}
+
 // 合成表样式：表头深蓝底白字加粗；克重列按材质分组底色
 var MES_STYLE_HEADER_FILL = '1F4E79'; // 深蓝（表头）
 var MES_STYLE_WEIGHT_GROUPS = [
@@ -6375,12 +6389,14 @@ function renderWeekly() {
   } else {
     html += '<div class="wk-status">' + statusRows + '</div>' +
       '<div style="text-align:center;padding:34px 0;color:var(--text-secondary);font-size:13px">' +
-      '点击右上角「一键生成周报」开始 · 生成后可在线预览、下载 HTML、打印成 PDF</div>';
+      '点击右上角「一键生成周报」开始 · 生成后可在线预览、下载 HTML / PPT、打印成 PDF</div>';
   }
   el.innerHTML = html;
   if (weeklyReportHtml) _wkMountIframe(weeklyReportHtml);
   var dl = document.getElementById('weekly-dl-btn');
   if (dl) dl.style.display = weeklyReportHtml ? '' : 'none';
+  var pb = document.getElementById('weekly-ppt-btn');
+  if (pb) pb.style.display = weeklyReportHtml ? '' : 'none';
 }
 function _wkSrcRow(name, ok, info) {
   return '<div class="wk-status-card' + (ok ? ' ok' : '') + '">' +
@@ -6730,6 +6746,8 @@ function generateWeeklyReport() {
   }
   var dl = document.getElementById('weekly-dl-btn');
   if (dl) dl.style.display = '';
+  var pb = document.getElementById('weekly-ppt-btn');
+  if (pb) pb.style.display = '';
   showToast('✅ 已生成 ' + weekKey + ' 周报');
 }
 function _wkMountIframe(html) {
@@ -6757,6 +6775,206 @@ function weeklyDownloadHtml() {
   document.body.appendChild(a); a.click();
   setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   showToast('✅ 周报已下载（可用浏览器打开、打印或转 PDF）');
+}
+
+// ---- 导出 PPT（PptxGenJS，6 页） ----
+function weeklyDownloadPpt() {
+  if (!weeklyReportHtml) { showToast('请先生成周报'); return; }
+  ensurePptxGenJS(function(err) {
+    if (err) { showToast('PPT 生成库加载失败，请检查网络后重试'); return; }
+    try {
+      _wkBuildPpt();
+      showToast('✅ 周报 PPT 已生成下载（6 页：封面 / 工艺监察 / 故障 / 绩效 / 试模 / 问题关注）');
+    } catch (e) {
+      console.error(e);
+      showToast('PPT 生成失败：' + (e && e.message ? e.message : e));
+    }
+  });
+}
+function _wkBuildPpt() {
+  var weekKey = weeklySelectedWeek || getWeekKey(new Date());
+  var g = _wkGather(weekKey);
+  var FONT = 'Microsoft YaHei';
+  var C = { dark:'2C2C2A', red:'C0392B', amber:'B8960F', green:'2E7D32', grey:'5F5E5A',
+            line:'D8D6CC', head:'EFEDE6', white:'FFFFFF', blue:'185FA5', track:'F0EEE7', noteBg:'FBF9F2' };
+  var rateColor = function(r) { return r < 80 ? C.red : (r < 95 ? C.amber : C.green); };
+  var pptx = new window.PptxGenJS();
+  pptx.defineLayout({ name: 'WK169', width: 10, height: 5.625 });
+  pptx.layout = 'WK169';
+  pptx.author = '工艺工作台';
+  pptx.title = '注塑工艺周报 ' + weekKey;
+  var fmtD = function(x) { return x ? (x.getMonth() + 1) + '月' + x.getDate() + '日' : ''; };
+  var d = g.dates || {};
+  var dRange = fmtD(d.start) + ' ~ ' + fmtD(d.end);
+
+  function secTitle(slide, no, title, sub) {
+    slide.addShape(pptx.ShapeType.rect, { x:0.45, y:0.3, w:0.34, h:0.34, fill:{ color:C.dark } });
+    slide.addText(no, { x:0.45, y:0.3, w:0.34, h:0.34, fontSize:13, color:C.white, bold:true, align:'center', valign:'middle', fontFace:FONT });
+    slide.addText(title, { x:0.92, y:0.26, w:7.5, h:0.44, fontSize:17, bold:true, color:C.dark, fontFace:FONT, valign:'middle' });
+    if (sub) slide.addText(sub, { x:0.92, y:0.68, w:8.6, h:0.28, fontSize:10.5, color:C.grey, fontFace:FONT });
+    slide.addShape(pptx.ShapeType.rect, { x:0.45, y:1.02, w:9.1, h:0.016, fill:{ color:C.line } });
+  }
+  function kpiCard(slide, x, y, w, h, val, label, color) {
+    slide.addShape(pptx.ShapeType.roundRect, { x:x, y:y, w:w, h:h, fill:{ color:C.white }, line:{ color:C.line, width:1 }, rectRadius:0.06 });
+    slide.addText(String(val), { x:x, y:y + 0.06, w:w, h:h * 0.55, fontSize:20, bold:true, color:color, align:'center', valign:'middle', fontFace:FONT });
+    slide.addText(label, { x:x, y:y + h * 0.6, w:w, h:h * 0.34, fontSize:10.5, color:C.grey, align:'center', valign:'middle', fontFace:FONT });
+  }
+  function thCell(t) { return { text: String(t), options: { bold:true, color:C.dark, fill:{ color:C.head }, align:'center', valign:'middle' } }; }
+  function tdCell(t, opts) { return { text: String(t), options: Object.assign({ color:C.dark, valign:'middle' }, opts || {}) }; }
+
+  // ===== 第 1 页：封面 + KPI =====
+  var s1 = pptx.addSlide();
+  s1.background = { color: 'FFFFFF' };
+  s1.addShape(pptx.ShapeType.rect, { x:0, y:0, w:10, h:0.14, fill:{ color:C.dark } });
+  s1.addText('注塑工艺周报', { x:0.5, y:0.62, w:9, h:0.85, fontSize:34, bold:true, color:C.dark, align:'center', fontFace:FONT });
+  s1.addText(weekKey + '  ·  ' + dRange, { x:0.5, y:1.48, w:9, h:0.4, fontSize:14, color:C.grey, align:'center', fontFace:FONT });
+  var kpis = [
+    { l:'监察机台', v: g.sup ? g.sup.machines.length : '—', c: C.blue },
+    { l:'平均符合率', v: g.sup && g.sup.avg != null ? g.sup.avg.toFixed(1) + '%' : '—', c: g.sup && g.sup.avg != null ? rateColor(g.sup.avg) : C.grey },
+    { l:'本周故障', v: g.faults ? g.faults.total : '—', c: C.red },
+    { l:'技术员', v: g.tech && g.tech.people ? g.tech.people.length : '—', c: C.dark },
+    { l:'本周试模', v: g.trial ? g.trial.count : '—', c: C.blue },
+    { l:'涉及模具', v: g.trial ? g.trial.moldCount : '—', c: C.dark }
+  ];
+  for (var i = 0; i < 6; i++) {
+    var col = i % 3, row = Math.floor(i / 3);
+    kpiCard(s1, 0.8 + col * 2.95, 2.15 + row * 1.42, 2.75, 1.22, kpis[i].v, kpis[i].l, kpis[i].c);
+  }
+  s1.addText('数据来源：工艺工作台（工艺监察 / 技术员绩效 / 试模分析） · 制表日期 ' + new Date().toLocaleDateString('zh-CN'),
+    { x:0.5, y:5.12, w:9, h:0.3, fontSize:9.5, color:C.grey, align:'center', fontFace:FONT });
+
+  // ===== 第 2 页：工艺监察 · 机台符合率 =====
+  var s2 = pptx.addSlide();
+  s2.background = { color: 'FFFFFF' };
+  secTitle(s2, '一', '工艺监察 · 机台符合率', '数据为当前快照' + (supervisionData && supervisionData.fileName ? '（' + supervisionData.fileName + '）' : '（未加载）'));
+  var dist = [
+    { l:'平均符合率', v: g.sup && g.sup.avg != null ? g.sup.avg.toFixed(1) + '%' : '—', c: g.sup && g.sup.avg != null ? rateColor(g.sup.avg) : C.grey },
+    { l:'低于 80%（红）', v: g.sup ? g.sup.red + ' 台' : '—', c: C.red },
+    { l:'80%~95%（橙）', v: g.sup ? g.sup.orange + ' 台' : '—', c: C.amber },
+    { l:'≥ 95%（绿）', v: g.sup ? g.sup.green + ' 台' : '—', c: C.green }
+  ];
+  for (var j = 0; j < 4; j++) kpiCard(s2, 0.45 + j * 2.32, 1.18, 2.18, 0.82, dist[j].v, dist[j].l, dist[j].c);
+  if (g.sup && g.sup.machines.length) {
+    var rated = g.sup.machines.filter(function(m){ return m.rate != null; }).sort(function(a,b){ return a.rate - b.rate; });
+    var show = rated.slice(0, 9);
+    var y0 = 2.2, rowH = 0.35;
+    show.forEach(function(m, k) {
+      var y = y0 + k * rowH;
+      s2.addText(m.name, { x:0.45, y:y, w:1.75, h:rowH, fontSize:10, color:C.grey, align:'right', valign:'middle', fontFace:FONT });
+      s2.addShape(pptx.ShapeType.roundRect, { x:2.32, y:y + 0.065, w:6.35, h:0.21, fill:{ color:C.track }, rectRadius:0.03 });
+      s2.addShape(pptx.ShapeType.roundRect, { x:2.32, y:y + 0.065, w:Math.max(0.12, 6.35 * Math.min(m.rate, 100) / 100), h:0.21, fill:{ color:rateColor(m.rate) }, rectRadius:0.03 });
+      s2.addText(m.rate.toFixed(1) + '%', { x:8.72, y:y, w:0.85, h:rowH, fontSize:10, bold:true, color:rateColor(m.rate), valign:'middle', fontFace:FONT });
+    });
+    if (rated.length > 9) s2.addText('（仅列出符合率最低的 9 台，共 ' + rated.length + ' 台）', { x:0.45, y:y0 + 9 * rowH, w:9.1, h:0.3, fontSize:9.5, color:C.grey, fontFace:FONT });
+  } else {
+    s2.addText('未加载工艺监察数据', { x:0.45, y:2.6, w:9.1, h:0.6, fontSize:12, color:C.grey, align:'center', fontFace:FONT });
+  }
+
+  // ===== 第 3 页：设备故障与特殊产品 =====
+  var s3 = pptx.addSlide();
+  s3.background = { color: 'FFFFFF' };
+  secTitle(s3, '二', '设备故障与特殊产品', '故障按所选周筛选' + (g.faults && g.faults.unclassified ? '（注意：故障表无日期列，未按周过滤）' : ''));
+  if (g.faults && g.faults.total > 0) {
+    s3.addText([
+      { text: '本周故障 ', options: { fontSize:13, color:C.dark } },
+      { text: String(g.faults.total), options: { fontSize:22, bold:true, color:C.red } },
+      { text: ' 起', options: { fontSize:13, color:C.dark } }
+    ], { x:0.45, y:1.22, w:4, h:0.5, fontFace:FONT, valign:'middle' });
+    var fRows = [[thCell('机台'), thCell('次数'), thCell('典型故障')]];
+    (g.faults.top || []).slice(0, 6).forEach(function(t) {
+      fRows.push([ tdCell(t.machine), tdCell(t.count, { align:'center', bold:true, color:C.red }), tdCell(t.faults.length ? t.faults.slice(0, 2).join('；') : '—') ]);
+    });
+    s3.addTable(fRows, { x:0.45, y:1.95, w:9.1, colW:[2.2, 0.9, 6.0], fontSize:10.5, fontFace:FONT, rowH:0.34, border:{ pt:0.5, color:C.line }, valign:'middle' });
+    if (g.faults.top.length > 6) s3.addText('（仅列 Top 6，共 ' + g.faults.top.length + ' 台机台有故障）', { x:0.45, y:1.95 + (Math.min(g.faults.top.length, 6) + 1) * 0.34 + 0.08, w:9.1, h:0.28, fontSize:9.5, color:C.grey, fontFace:FONT });
+  } else {
+    s3.addText(g.faults ? '本周无设备故障记录 ✓' : '未加载故障数据', { x:0.45, y:1.4, w:9.1, h:0.5, fontSize:13, color: g.faults ? C.green : C.grey, fontFace:FONT });
+  }
+  s3.addShape(pptx.ShapeType.roundRect, { x:0.45, y:4.85, w:9.1, h:0.55, fill:{ color:C.noteBg }, line:{ color:'E5DFC8', width:1 }, rectRadius:0.05 });
+  s3.addText([
+    { text: '特殊产品清单：', options: { bold:true, color:C.dark } },
+    { text: g.products != null ? g.products + ' 条' + (g.products > 0 ? '（重点关注）' : '（本周无）') : '未加载', options: { color: g.products ? C.red : C.grey } }
+  ], { x:0.75, y:4.85, w:8.5, h:0.55, fontSize:11.5, fontFace:FONT, valign:'middle' });
+
+  // ===== 第 4 页：技术员绩效 =====
+  var s4 = pptx.addSlide();
+  s4.background = { color: 'FFFFFF' };
+  secTitle(s4, '三', '技术员绩效（本月汇总）', g.tech ? '来源：' + (g.tech.fileName || '绩效表') : '未加载技术员绩效数据');
+  if (g.tech && g.tech.people && g.tech.people.length) {
+    var sorted = g.tech.people.slice().sort(function(a, b) { return (b.score || 0) - (a.score || 0); });
+    var errCol = function(p, key) { var e = (p.errors || []).filter(function(x){ return x.key === key; })[0]; return e ? (e.count || 0) : 0; };
+    var tRows = [[thCell('名次'), thCell('技术员'), thCell('监察数'), thCell('温差'), thCell('时间'), thCell('未接冰水'), thCell('成型温度'), thCell('错误合计'), thCell('符合率'), thCell('得分')]];
+    sorted.forEach(function(p, idx) {
+      var errT = _wkTechErrTotal(p);
+      var rowColor = idx === 0 ? C.green : (errT >= 5 ? C.red : C.dark);
+      var fill = idx === 0 ? 'EAF3DE' : (errT >= 5 ? 'FCEBEB' : undefined);
+      tRows.push([
+        tdCell(idx + 1, { align:'center' }),
+        tdCell(p.name, { bold:true, color:rowColor, fill: fill ? { color: fill } : undefined }),
+        tdCell(p.inspected != null ? p.inspected : '—', { align:'center', fill: fill ? { color: fill } : undefined }),
+        tdCell(errCol(p, 'temp'), { align:'center', fill: fill ? { color: fill } : undefined }),
+        tdCell(errCol(p, 'time'), { align:'center', fill: fill ? { color: fill } : undefined }),
+        tdCell(errCol(p, 'ice'), { align:'center', fill: fill ? { color: fill } : undefined }),
+        tdCell(errCol(p, 'mold'), { align:'center', fill: fill ? { color: fill } : undefined }),
+        tdCell(errT, { align:'center', bold:true, color: errT >= 5 ? C.red : C.dark, fill: fill ? { color: fill } : undefined }),
+        tdCell(p.rate != null ? p.rate.toFixed(1) + '%' : '—', { align:'center', fill: fill ? { color: fill } : undefined }),
+        tdCell(p.score != null ? p.score : '—', { align:'center', bold:true, color:rowColor, fill: fill ? { color: fill } : undefined })
+      ]);
+    });
+    s4.addTable(tRows, { x:0.45, y:1.35, w:9.1, colW:[0.6, 1.4, 0.85, 0.75, 0.75, 1.0, 1.05, 1.0, 0.9, 0.8], fontSize:10.5, fontFace:FONT, rowH:0.36, border:{ pt:0.5, color:C.line }, valign:'middle' });
+    var best = sorted[0], worst = sorted[sorted.length - 1];
+    s4.addText([
+      { text: '🏅 最佳：' + best.name + '（得分 ' + (best.score != null ? best.score : '—') + '）    ', options: { color:C.green, bold:true } },
+      { text: worst && _wkTechErrTotal(worst) >= 5 ? '⚠ 需改进：' + worst.name + '（不规范 ' + _wkTechErrTotal(worst) + ' 次居首）' : '', options: { color:C.amber, bold:true } }
+    ], { x:0.45, y:4.9, w:9.1, h:0.4, fontSize:11, fontFace:FONT, valign:'middle' });
+  } else {
+    s4.addText('未加载技术员绩效数据', { x:0.45, y:2.6, w:9.1, h:0.6, fontSize:12, color:C.grey, align:'center', fontFace:FONT });
+  }
+
+  // ===== 第 5 页：试模分析 =====
+  var s5 = pptx.addSlide();
+  s5.background = { color: 'FFFFFF' };
+  secTitle(s5, '四', '试模分析', '试模数据按所选周筛选' + (store.trialAnalysis && store.trialAnalysis.dirName ? '（' + store.trialAnalysis.dirName + '）' : ''));
+  if (g.trial) {
+    var tk = [
+      { l:'试模次数', v: g.trial.count, c: C.blue },
+      { l:'涉及模具', v: g.trial.moldCount, c: C.dark },
+      { l:'涉及机台', v: g.trial.machineCount, c: C.dark },
+      { l:'调机报废', v: g.trial.scrap, c: g.trial.scrap > 0 ? C.red : C.green },
+      { l:'循环差异均值', v: g.trial.cycleAvg != null ? g.trial.cycleAvg : '—', c: C.dark }
+    ];
+    for (var k2 = 0; k2 < 5; k2++) kpiCard(s5, 0.45 + k2 * 1.86, 1.18, 1.72, 0.82, tk[k2].v, tk[k2].l, tk[k2].c);
+    if (g.trial.pairStats && g.trial.pairStats.length) {
+      var pRows = [[thCell('指标差异'), thCell('超标准'), thCell('低于标准'), thCell('持平'), thCell('缺数据')]];
+      g.trial.pairStats.forEach(function(p) {
+        pRows.push([
+          tdCell(p.label),
+          tdCell(p.ups, { align:'center', bold:true, color: p.ups >= 3 ? C.red : C.dark }),
+          tdCell(p.downs, { align:'center' }),
+          tdCell(p.eqs, { align:'center' }),
+          tdCell(p.missA + p.missB, { align:'center', color: (p.missA + p.missB) > 0 ? C.amber : C.dark })
+        ]);
+      });
+      s5.addTable(pRows, { x:0.45, y:2.28, w:9.1, colW:[3.5, 1.4, 1.4, 1.4, 1.4], fontSize:9.5, fontFace:FONT, rowH:0.28, border:{ pt:0.5, color:C.line }, valign:'middle' });
+    }
+  } else {
+    s5.addText('未加载试模分析数据', { x:0.45, y:2.6, w:9.1, h:0.6, fontSize:12, color:C.grey, align:'center', fontFace:FONT });
+  }
+
+  // ===== 第 6 页：问题与下周关注 =====
+  var s6 = pptx.addSlide();
+  s6.background = { color: 'FFFFFF' };
+  secTitle(s6, '五', '问题与下周关注', '根据三个模块数据自动提炼');
+  var issues = _wkIssues(g);
+  issues.slice(0, 6).forEach(function(it, k) {
+    var y = 1.3 + k * 0.52;
+    var c = it.level === 'bad' ? C.red : (it.level === 'warn' ? C.amber : C.green);
+    s6.addShape(pptx.ShapeType.rect, { x:0.5, y:y + 0.1, w:0.09, h:0.24, fill:{ color:c } });
+    s6.addText(it.text, { x:0.72, y:y, w:8.8, h:0.46, fontSize:11, color:C.dark, fontFace:FONT, valign:'middle' });
+  });
+  s6.addShape(pptx.ShapeType.roundRect, { x:0.45, y:4.55, w:9.1, h:0.75, fill:{ color:C.noteBg }, line:{ color:'E5DFC8', width:1 }, rectRadius:0.05 });
+  s6.addText('备注（手写补充）：', { x:0.7, y:4.55, w:8.6, h:0.75, fontSize:10.5, color:C.grey, fontFace:FONT, valign:'middle' });
+
+  return pptx.writeFile({ fileName: '工艺周报-' + weekKey + '.pptx' });
 }
 
 // ========== Init ==========
