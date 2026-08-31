@@ -6165,10 +6165,15 @@ async function _trialParseFiles(files, dirName) {
           var key = String(wo == null ? '' : wo).trim();
           if (!key || seen[key]) continue;
           seen[key] = true;
-          var rec = { '工单号': key };
+          var rec = {};
+          // 保留原始行所有列数据（导出时需要完整原始信息）
+          headers.forEach(function(h, idx) {
+            if (h) rec[h] = row[idx];
+          });
+          rec['工单号'] = key;
           ['模具编号','产品编号','产品名称','机台名','试模问题','调机人'].forEach(function(n) {
             var ci = baseCols[n];
-            rec[n] = ci >= 0 && row[ci] != null ? String(row[ci]).trim() : '';
+            if (ci >= 0 && row[ci] != null) rec[n] = String(row[ci]).trim();
           });
           var dt = baseCols['记录时间'] >= 0 ? _trialParseDate(row[baseCols['记录时间']]) : null;
           rec['试模日期'] = dt ? dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2) : '';
@@ -6266,33 +6271,50 @@ function trialExportExcel() {
         } else { c.value = v ? String(v) : ''; c.font = { color:{argb:'FFD68910'}, bold:true }; }
         center(c);
       }
-      // Sheet1 试模明细
+      // Sheet1 试模明细 — 先输出所有原始列，再追加分析专用列
       var ws = wb.addWorksheet('试模明细', { views:[{ state:'frozen', ySplit:1 }] });
-      var head = ['工单号','模具编号','产品编号','产品名称','机台名','试模日期','循环时间(s)','标准周期(s)','循环差异(s)','试模问题','调机人','调机报废数量'];
-      pairs.forEach(function(p) { head.push(p.a, p.b, p.d); });
+      var rawHeaders = (t.headers || []).slice();
+      var extraCols = ['试模日期', '循环差异'];
+      pairs.forEach(function(p) { extraCols.push(p.d); });
+      extraCols.forEach(function(c) { if (rawHeaders.indexOf(c) < 0) rawHeaders.push(c); });
+      var head = rawHeaders;
+      var pairDiffSet = {};
+      pairs.forEach(function(p) { pairDiffSet[p.d] = p; });
       var hr = ws.addRow(head); hr.eachCell(hdr);
       recs.forEach(function(r) {
-        var row = [r['工单号'], r['模具编号'], r['产品编号'], r['产品名称'], r['机台名'], r['试模日期'], r['循环时间'], r['标准周期'], null, r['试模问题'], r['调机人'], r['调机报废']];
-        pairs.forEach(function(p) { row.push(r[p.a], r[p.b], r[p.d]); });
+        var row = [];
+        head.forEach(function(h) {
+          var v = r[h];
+          row.push(v === undefined || v === null ? '' : v);
+        });
         var xr = ws.addRow(row);
-        xr.eachCell(function(c) { valCell(c, c.value); });
-        var cyd = r['循环差异'];
-        if (typeof cyd === 'number') diffCell(xr.getCell(9), cyd);
-        else { xr.getCell(9).value = '无数据'; diffCell(xr.getCell(9), '无数据'); }
-        for (var i = 0; i < pairs.length; i++) {
-          var dv = r[pairs[i].d];
-          if (typeof dv === 'number') diffCell(xr.getCell(15 + i*3), dv);
-          else {
-            var av = r[pairs[i].a], bv = r[pairs[i].b];
-            var lbl = (av === null || av === undefined) ? ((bv !== null && bv !== undefined) ? '缺实际值' : '无数据') : '缺标准值';
-            diffCell(xr.getCell(15 + i*3), lbl);
+        head.forEach(function(h, idx) {
+          var c = xr.getCell(idx + 1);
+          var v = r[h];
+          if (h === '循环差异') {
+            if (typeof v === 'number') diffCell(c, v);
+            else { c.value = '无数据'; diffCell(c, '无数据'); }
+          } else if (pairDiffSet[h]) {
+            if (typeof v === 'number') diffCell(c, v);
+            else {
+              var p = pairDiffSet[h];
+              var av = r[p.a], bv = r[p.b];
+              var lbl = (av === null || av === undefined) ? ((bv !== null && bv !== undefined) ? '缺实际值' : '无数据') : '缺标准值';
+              c.value = lbl; diffCell(c, lbl);
+            }
+          } else {
+            valCell(c, v);
           }
-        }
+        });
       });
-      [2,4,5,6,10,11,12].forEach(function(i) { ws.getColumn(i).width = 14; });
-      ws.getColumn(1).width = 20; ws.getColumn(3).width = 18;
-      [7,8,9].forEach(function(i) { ws.getColumn(i).width = 12; });
-      pairs.forEach(function(p, i) { ws.getColumn(13 + i*3).width = 16; ws.getColumn(14 + i*3).width = 16; ws.getColumn(15 + i*3).width = 16; });
+      head.forEach(function(h, idx) {
+        var w = 14;
+        if (h === '工单号') w = 22;
+        else if (h === '产品编号' || h === '产品名称' || h.indexOf('模具') >= 0) w = 18;
+        else if (h === '试模日期') w = 12;
+        else if (h === '循环差异' || h.indexOf('差异') >= 0 || h.indexOf('差') >= 0) w = 16;
+        ws.getColumn(idx + 1).width = w;
+      });
       // Sheet2 差异汇总
       var ws2 = wb.addWorksheet('差异汇总');
       var hr2 = ws2.addRow(['指标','超耗↑','省料↓','持平=','缺实际值','缺标准值','均无']);
@@ -6667,7 +6689,7 @@ function _wkBuildHtml(g) {
     ppl.forEach(function(p) {
       var errT = _wkTechErrTotal(p);
       var errMap = {}; (p.errors || []).forEach(function(e) { errMap[e.key] = e.count; });
-      var rateStr = (typeof p.rate === 'number') ? p.rate.toFixed(1) + '%' : (p.rate != null ? E(String(p.rate)) : '—');
+      var rateStr = (typeof p.rate === 'number') ? (p.rate * 100).toFixed(1) + '%' : (p.rate != null ? E(String(p.rate)) : '—');
       h += '<tr><td>' + E(p.name) + '</td><td class="num">' + _wkNum(p.inspected) + '</td>'
         + '<td class="num">' + _wkNum(errMap.temp) + '</td><td class="num">' + _wkNum(errMap.time) + '</td>'
         + '<td class="num">' + _wkNum(errMap.ice) + '</td><td class="num">' + _wkNum(errMap.mold) + '</td>'
@@ -6916,7 +6938,7 @@ function _wkBuildPpt() {
         tdCell(errCol(p, 'ice'), { align:'center', fill: fill ? { color: fill } : undefined }),
         tdCell(errCol(p, 'mold'), { align:'center', fill: fill ? { color: fill } : undefined }),
         tdCell(errT, { align:'center', bold:true, color: errT >= 5 ? C.red : C.dark, fill: fill ? { color: fill } : undefined }),
-        tdCell(p.rate != null ? p.rate.toFixed(1) + '%' : '—', { align:'center', fill: fill ? { color: fill } : undefined }),
+        tdCell(p.rate != null ? (p.rate * 100).toFixed(1) + '%' : '—', { align:'center', fill: fill ? { color: fill } : undefined }),
         tdCell(p.score != null ? p.score : '—', { align:'center', bold:true, color:rowColor, fill: fill ? { color: fill } : undefined })
       ]);
     });
