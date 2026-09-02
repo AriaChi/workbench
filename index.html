@@ -3657,14 +3657,18 @@ function _mesParseTrialImages(zip) {
   ]).then(function(res) {
     var d = res[0], rels = res[1];
     var rmap = {};
-    var relRe = /<Relationship[^>]*Id="(rId\d+)"[^>]*Target="([^"]+)"/g, mm;
-    while ((mm = relRe.exec(rels))) rmap[mm[1]] = mm[2];
+    var relTagRe = /<Relationship[^>]*\/?>/g, rt;
+    while ((rt = relTagRe.exec(rels))) {
+      var idM = /\bId="(rId\d+)"/.exec(rt[0]);
+      var tgtM = /\bTarget="([^"]+)"/.exec(rt[0]);
+      if (idM && tgtM) rmap[idM[1]] = tgtM[1];
+    }
     var anchors = [];
-    var anchorRe = /<xdr:twoCellAnchor[\s\S]*?<\/xdr:twoCellAnchor>/g, ma;
+    var anchorRe = /<(?:xdr:)?(oneCellAnchor|twoCellAnchor)[\s\S]*?<\/(?:xdr:)?\1>/g, ma;
     while ((ma = anchorRe.exec(d))) {
       var a = ma[0];
-      var colM = /<xdr:col>(\d+)<\/xdr:col>/.exec(a);
-      var rowM = /<xdr:row>(\d+)<\/xdr:row>/.exec(a);
+      var colM = /<(?:xdr:)?col>(\d+)<\/(?:xdr:)?col>/.exec(a);
+      var rowM = /<(?:xdr:)?row>(\d+)<\/(?:xdr:)?row>/.exec(a);
       var embM = /r:embed="(rId\d+)"/.exec(a);
       if (!colM || !rowM || !embM) continue;
       var target = rmap[embM[1]];
@@ -5924,6 +5928,9 @@ function initSampleData() {
 // 列位置（0 基）：B=1 工单号；AK~BB 成对（实际在前/标准在后）；BD=55 称重照片；BI=60 试模问题
 var TRIAL_PAIR_IDX = [[36,37],[38,39],[40,41],[42,43],[44,45],[46,47],[48,49],[50,51],[52,53]];
 var TRIAL_BD_IDX = 55;
+// 试模图片内存池（不入 store，刷新后需重新导入）
+var _trialImgPool = null; // [{ ext, data: Uint8Array, w, h, srcW, srcH }]
+var _trialImgByRec = null; // { 工单号: [poolIndex, ...] }
 
 function _trialNum(v) {
   if (v === null || v === undefined) return null;
@@ -5964,6 +5971,66 @@ function _trialIsoWeek(dt) {
   var yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
   var week = Math.ceil((((t - yearStart) / 86400000) + 1) / 7);
   return { year: t.getUTCFullYear(), week: week };
+}
+
+// 从试模 xlsx 中提取 BD 列（称重照片）图片
+async function _trialExtractImages(buf, aoa, headers) {
+  if (!window.JSZip) return { pool: [], byRec: {} };
+  try {
+    var zip = await JSZip.loadAsync(buf);
+    var get = function(p) { return zip.file(p) ? zip.file(p).async('string') : Promise.resolve(''); };
+    var res = await Promise.all([get('xl/drawings/drawing1.xml'), get('xl/drawings/_rels/drawing1.xml.rels')]);
+    var d = res[0], rels = res[1];
+    var rmap = {};
+    var relTagRe = /<Relationship[^>]*\/?>/g, rt;
+    while ((rt = relTagRe.exec(rels))) {
+      var idM = /\bId="(rId\d+)"/.exec(rt[0]);
+      var tgtM = /\bTarget="([^"]+)"/.exec(rt[0]);
+      if (idM && tgtM) rmap[idM[1]] = tgtM[1];
+    }
+    var anchors = [];
+    var anchorRe = /<(?:xdr:)?(oneCellAnchor|twoCellAnchor)[\s\S]*?<\/(?:xdr:)?\1>/g, ma;
+    while ((ma = anchorRe.exec(d))) {
+      var a = ma[0];
+      var colM = /<(?:xdr:)?col>(\d+)<\/(?:xdr:)?col>/.exec(a);
+      var rowM = /<(?:xdr:)?row>(\d+)<\/(?:xdr:)?row>/.exec(a);
+      var embM = /r:embed="(rId\d+)"/.exec(a);
+      if (!colM || !rowM || !embM) continue;
+      if (+colM[1] !== TRIAL_BD_IDX) continue; // 只取 BD 列
+      var target = rmap[embM[1]];
+      if (!target) continue;
+      var mediaPath = 'xl/media/' + target.split('/').pop();
+      anchors.push({ col: +colM[1], row: +rowM[1], path: mediaPath });
+    }
+    var pool = [], byRec = {};
+    var woCol = -1;
+    for (var i = 0; i < headers.length; i++) if (String(headers[i]).trim() === '工单号') { woCol = i; break; }
+    var tasks = anchors.map(function(an) {
+      var f = zip.file(an.path);
+      if (!f) return Promise.resolve(null);
+      return f.async('arraybuffer').then(function(ab) {
+        var ext = an.path.split('.').pop().toLowerCase();
+        if (ext === 'jpg') ext = 'jpeg';
+        var u8 = new Uint8Array(ab);
+        var dim = _mesImgDims(u8, ext);
+        var img = { ext: ext, data: u8, w: dim.w, h: dim.h };
+        var poolIdx = pool.length;
+        pool.push(img);
+        // 按 row 找对应工单号（aoa 下标：row=1 对应 aoa[1]，即数据行下标）
+        var rowIdx = an.row; // drawing XML 的 row 即 aoa 下标
+        if (rowIdx >= 0 && rowIdx < aoa.length) {
+          var wo = woCol >= 0 ? String(aoa[rowIdx][woCol] || '').trim() : '';
+          if (wo) (byRec[wo] = byRec[wo] || []).push(poolIdx);
+        }
+        return null;
+      });
+    });
+    await Promise.all(tasks);
+    return { pool: pool, byRec: byRec };
+  } catch (e) {
+    console.error('[trial] extract images failed:', e);
+    return { pool: [], byRec: {} };
+  }
 }
 
 // 渲染试模分析页
@@ -6118,10 +6185,13 @@ function _trialLoadFiles(files, dirName) {
     if (content) content.innerHTML = '<div class="trial-loading"><div class="trial-spinner"></div>正在解析 ' + files.length + ' 个文件，合并去重中…</div>';
     ensureXLSX(function(err) {
       if (err) { showToast('XLSX 库加载失败，请检查网络后重试'); renderTrial(); resolve(); return; }
-      _trialParseFiles(files, dirName).then(resolve, function(e) {
-        console.error('[trial] load failed:', e);
-        showToast('解析失败：' + (e && e.message ? e.message : e));
-        renderTrial(); resolve();
+      ensureJSZip(function(jerr) {
+        if (jerr) console.warn('[trial] JSZip 未加载，BD列图片将跳过：' + jerr);
+        _trialParseFiles(files, dirName).then(resolve, function(e) {
+          console.error('[trial] load failed:', e);
+          showToast('解析失败：' + (e && e.message ? e.message : e));
+          renderTrial(); resolve();
+        });
       });
     });
   });
@@ -6131,15 +6201,25 @@ async function _trialParseFiles(files, dirName) {
     {
       try {
         var headers = null, allRows = [], fileNames = [];
+        var imgPool = [], imgByRec = {};
         for (var fi = 0; fi < files.length; fi++) {
           var buf = await files[fi].arrayBuffer();
           var wb = XLSX.read(buf, { type: 'array' });
           var ws = wb.Sheets[wb.SheetNames[0]];
           if (!ws) continue;
-          var aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+          var aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
           if (!aoa.length) continue;
           fileNames.push(files[fi].name);
           if (!headers) headers = aoa[0].map(function(x) { return String(x == null ? '' : x).trim(); });
+          // 提取图片（BD列=称重照片）
+          var fileImgs = await _trialExtractImages(buf, aoa, headers);
+          if (fileImgs && fileImgs.pool.length) {
+            var baseIdx = imgPool.length;
+            fileImgs.pool.forEach(function(img) { imgPool.push(img); });
+            Object.keys(fileImgs.byRec).forEach(function(wo) {
+              (imgByRec[wo] = imgByRec[wo] || []).push.apply(imgByRec[wo], fileImgs.byRec[wo].map(function(i) { return i + baseIdx; }));
+            });
+          }
           for (var ri = 1; ri < aoa.length; ri++) allRows.push(aoa[ri]);
         }
         if (!headers || !allRows.length) { showToast('没有读到数据行'); renderTrial(); return; }
@@ -6187,8 +6267,14 @@ async function _trialParseFiles(files, dirName) {
             rec[p.a] = av; rec[p.b] = bv;
             rec[p.d] = (av !== null && bv !== null) ? Math.round((av - bv) * 10000) / 10000 : null;
           });
+          // 绑定图片索引
+          if (imgByRec[key] && imgByRec[key].length) {
+            rec.__imgs = imgByRec[key].slice();
+          }
           recs.push(rec);
         }
+        _trialImgPool = imgPool;
+        _trialImgByRec = imgByRec;
         recs.sort(function(a, b) { return (a['__dt'] || 0) - (b['__dt'] || 0); });
         // 差异汇总
         var summary = [];
@@ -6262,6 +6348,20 @@ function trialExportExcel() {
         else { c.value = (v === null || v === undefined || v === '') ? '' : String(v); c.font = { color:{argb:'FF555555'} }; }
         center(c);
       }
+      // 智能数值化：源单元格可能是“文本型数字”（Excel 绿色三角），导出时转回数字；
+      // 文本标识列（编号/名称/工单/日期/时间等）保持原样，避免误转。
+      function numCell(c, v, h) {
+        if (typeof v === 'number') { valCell(c, v); return; }
+        var isTextCol = h && /(编号|号码|名称|工单|批号|客户|模具|产品|机台|备注|问题|方式|要求|照片|图片|图$|内容|单位|版本|状态|人员|姓名)/.test(String(h));
+        if (!isTextCol && v !== null && v !== undefined && v !== '') {
+          var s = String(v).trim();
+          if (/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) { valCell(c, parseFloat(s)); return; }
+          // 千分位 / 百分数 / 中文单位等：拆出数字部分
+          var m = s.match(/^[+-]?(\d[\d,]*(?:\.\d+)?|\d*\.\d+)\s*%?$/);
+          if (m && /[,]/.test(s)) { valCell(c, parseFloat(s.replace(/,/g, ''))); return; }
+        }
+        valCell(c, v);
+      }
       function diffCell(c, v) {
         if (typeof v === 'number') {
           c.value = v;
@@ -6271,17 +6371,21 @@ function trialExportExcel() {
         } else { c.value = v ? String(v) : ''; c.font = { color:{argb:'FFD68910'}, bold:true }; }
         center(c);
       }
-      // Sheet1 试模明细 — 先输出所有原始列，再追加分析专用列
+      // Sheet1 试模明细 — 原始列 + 分析列；BD「称重照片」列移到末尾作为图片列
       var ws = wb.addWorksheet('试模明细', { views:[{ state:'frozen', ySplit:1 }] });
       var rawHeaders = (t.headers || []).slice();
+      var hasImgs = !!( _trialImgPool && _trialImgPool.length);
+      var bdAt = rawHeaders.indexOf('称重照片');
+      if (bdAt >= 0) rawHeaders.splice(bdAt, 1);            // 从中段移除（原位置为图片单元格，无文本）
       var extraCols = ['试模日期', '循环差异'];
       pairs.forEach(function(p) { extraCols.push(p.d); });
       extraCols.forEach(function(c) { if (rawHeaders.indexOf(c) < 0) rawHeaders.push(c); });
+      if (hasImgs || bdAt >= 0) rawHeaders.push('称重照片'); // 图片列放到所有数据列的最后面
       var head = rawHeaders;
       var pairDiffSet = {};
       pairs.forEach(function(p) { pairDiffSet[p.d] = p; });
       var hr = ws.addRow(head); hr.eachCell(hdr);
-      recs.forEach(function(r) {
+      recs.forEach(function(r, ridx) {
         var row = [];
         head.forEach(function(h) {
           var v = r[h];
@@ -6302,8 +6406,27 @@ function trialExportExcel() {
               var lbl = (av === null || av === undefined) ? ((bv !== null && bv !== undefined) ? '缺实际值' : '无数据') : '缺标准值';
               c.value = lbl; diffCell(c, lbl);
             }
+          } else if (h === '称重照片') {
+            // 嵌入图片（同一工单多张时并排铺开）
+            if (r.__imgs && r.__imgs.length && _trialImgPool) {
+              var imgIdxs = r.__imgs, drewImg = false;
+              var maxWpx = 110, maxHpx = 150; // 单图显示上限（px）
+              imgIdxs.forEach(function(pi, ki) {
+                var img = _trialImgPool[pi];
+                if (!img || !img.data) return;
+                var wpx = Math.min(img.w || maxWpx, maxWpx), hpx = Math.min(img.h || maxHpx, maxHpx);
+                var imgId = wb.addImage({
+                  buffer: img.data.buffer.slice(img.data.byteOffset, img.data.byteOffset + img.data.byteLength),
+                  extension: img.ext
+                });
+                ws.addImage(imgId, { tl: { col: idx + ki, row: ridx + 1 }, ext: { width: wpx, height: hpx } });
+                drewImg = true;
+              });
+              if (drewImg) c.value = '';
+            }
+            center(c);
           } else {
-            valCell(c, v);
+            numCell(c, v, h);
           }
         });
       });
@@ -6313,8 +6436,21 @@ function trialExportExcel() {
         else if (h === '产品编号' || h === '产品名称' || h.indexOf('模具') >= 0) w = 18;
         else if (h === '试模日期') w = 12;
         else if (h === '循环差异' || h.indexOf('差异') >= 0 || h.indexOf('差') >= 0) w = 16;
+        else if (h === '称重照片') w = 18;
         ws.getColumn(idx + 1).width = w;
       });
+      // 有图片时按最高一张增加行高
+      if (hasImgs) {
+        recs.forEach(function(r, ridx) {
+          if (!(r.__imgs && r.__imgs.length) || !_trialImgPool) return;
+          var maxH = 0;
+          r.__imgs.forEach(function(pi) {
+            var img = _trialImgPool[pi];
+            if (img && img.h) maxH = Math.max(maxH, Math.min(img.h, 150));
+          });
+          if (maxH) ws.getRow(ridx + 2).height = maxH * 0.75 + 4;
+        });
+      }
       // Sheet2 差异汇总
       var ws2 = wb.addWorksheet('差异汇总');
       var hr2 = ws2.addRow(['指标','超耗↑','省料↓','持平=','缺实际值','缺标准值','均无']);
