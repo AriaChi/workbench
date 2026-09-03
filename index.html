@@ -6410,7 +6410,8 @@ function trialExportExcel() {
         center(c);
       }
       // Sheet1 试模明细 — 原始列 + 分析列；三种图片列移到末尾：
-      // 称重照片（数量不定，按最大张数铺列）+ 进胶平衡性（预留4格）+ 试模照片（预留4格），每张图嵌一格，不够空着
+      // 末尾顺序：进胶平衡性（预留4格）→ 试模问题（文本列，紧贴试模照片之前）→ 试模照片（预留4格）→ 称重照片（张数不定，放最后面）
+      // 每张图嵌一格，不够空着
       var ws = wb.addWorksheet('试模明细', { views:[{ state:'frozen', ySplit:1 }] });
       var rawHeaders = (t.headers || []).slice();
       var hasImgs = !!(_trialImgPool && _trialImgPool.length);
@@ -6427,14 +6428,18 @@ function trialExportExcel() {
       recs.forEach(function(r) { if (r.__imgs && r.__imgs.length > maxBD) maxBD = r.__imgs.length; });
       var JJ_SLOTS = 4, SM_SLOTS = 4;
       var hasImgZone = hasImgs || origImgCols['称重照片'] || origImgCols['进胶平衡性'] || origImgCols['试模照片'];
-      var bd0 = -1, jj0 = -1, sm0 = -1;
+      // 试模问题（文本列）属试模记录块，一并移到末尾、紧贴「试模照片」之前；无图片区时保持原位
+      var hasTrialIssue = rawHeaders.indexOf('试模问题') >= 0;
+      if (hasImgZone && hasTrialIssue) rawHeaders.splice(rawHeaders.indexOf('试模问题'), 1);
+      var bd0 = -1, jj0 = -1, sm0 = -1, ti0 = -1;
       if (hasImgZone) {
-        bd0 = rawHeaders.length;
-        for (var k = 0; k < maxBD; k++) rawHeaders.push(k === 0 ? '称重照片' : '');
         jj0 = rawHeaders.length;
         for (var k = 0; k < JJ_SLOTS; k++) rawHeaders.push(k === 0 ? '进胶平衡性' : '');
+        if (hasTrialIssue) { ti0 = rawHeaders.length; rawHeaders.push('试模问题'); }
         sm0 = rawHeaders.length;
         for (var k = 0; k < SM_SLOTS; k++) rawHeaders.push(k === 0 ? '试模照片' : '');
+        bd0 = rawHeaders.length;
+        for (var k = 0; k < maxBD; k++) rawHeaders.push(k === 0 ? '称重照片' : '');
       }
       var head = rawHeaders;
       var pairDiffSet = {};
@@ -6507,7 +6512,8 @@ function trialExportExcel() {
         else if (h === '产品编号' || h === '产品名称' || h.indexOf('模具') >= 0) w = 18;
         else if (h === '试模日期') w = 12;
         else if (h === '循环差异' || h.indexOf('差异') >= 0 || h.indexOf('差') >= 0) w = 16;
-        else if (hasImgZone && idx >= bd0) w = 15; // 图片区列宽
+        else if (hasImgZone && idx === ti0) w = 30; // 试模问题文本列（图片区内，需足够宽）
+        else if (hasImgZone && idx >= jj0) w = 15; // 图片区列宽（进胶平衡性/试模照片/称重照片各格）
         ws.getColumn(idx + 1).width = w;
       });
       // Sheet2 差异汇总
