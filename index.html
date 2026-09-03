@@ -1365,7 +1365,7 @@ if ('serviceWorker' in navigator) {
         <div class="page-title">
           <svg class="icon" viewBox="0 0 24 24"><path d="M21 21H4a1 1 0 0 1-1-1V3"/><path d="M7 14l3-4 3 3 5-6"/></svg>
           试模分析
-          <span class="help-btn" onclick="event.stopPropagation();this.classList.toggle('show-tip')">?<span class="help-tooltip">选择文件夹，读取其中全部 MES汇总_*.xlsx（格式相同）→ BD列(称重照片)非空 → 按工单号去重 → 得试模数据；差异 = 实际 − 标准（↑红超耗 / ↓绿省料）。支持导出 Excel。</span></span>
+          <span class="help-btn" onclick="event.stopPropagation();this.classList.toggle('show-tip')">?<span class="help-tooltip">选择文件夹，读取其中全部 MES汇总_*.xlsx（格式相同）→ BD列(称重照片)非空 → 按工单号+类型去重（双色机台保留A/B两行）→ 得试模数据；差异 = 实际 − 标准（↑红超耗 / ↓绿省料）。支持导出 Excel。</span></span>
         </div>
         <div class="flex gap-8">
           <button class="btn btn-outline btn-sm" onclick="trialSelectFolder()">
@@ -5930,7 +5930,7 @@ var TRIAL_PAIR_IDX = [[36,37],[38,39],[40,41],[42,43],[44,45],[46,47],[48,49],[5
 var TRIAL_BD_IDX = 55;
 // 试模图片内存池（不入 store，刷新后需重新导入）
 var _trialImgPool = null; // [{ ext, data: Uint8Array, w, h, srcW, srcH }]
-var _trialImgByRec = null; // { 工单号: [poolIndex, ...] }
+var _trialImgByRec = null; // { "工单号|类型": {bd:[], jj:[], sm:[]} }
 
 function _trialNum(v) {
   if (v === null || v === undefined) return null;
@@ -6017,8 +6017,12 @@ async function _trialExtractImages(buf, aoa, headers) {
       anchors.push({ col: cnum, row: +rowM[1], path: mediaPath, tp: tp });
     }
     var pool = [], byRec = {};
-    var woCol = -1;
-    for (var i = 0; i < headers.length; i++) if (String(headers[i]).trim() === '工单号') { woCol = i; break; }
+    var woCol = -1, typeCol = -1;
+    for (var i = 0; i < headers.length; i++) {
+      var hn = String(headers[i]).trim();
+      if (hn === '工单号') woCol = i;
+      else if (hn === '类型') typeCol = i;
+    }
     var tasks = anchors.map(function(an) {
       var f = zip.file(an.path);
       if (!f) return Promise.resolve(null);
@@ -6030,13 +6034,16 @@ async function _trialExtractImages(buf, aoa, headers) {
         var img = { ext: ext, data: u8, w: dim.w, h: dim.h };
         var poolIdx = pool.length;
         pool.push(img);
-        // 按 row 找对应工单号（aoa 下标：row=1 对应 aoa[1]，即数据行下标）
+        // 按 row 找对应工单号 + 类型（双色机台同一工单有A/B两种类型，需分开）
+        // 记录来源行号 r：去重只保留首现行，非首现行的图片不得混入（防重复）
         var rowIdx = an.row; // drawing XML 的 row 即 aoa 下标
         if (rowIdx >= 0 && rowIdx < aoa.length) {
           var wo = woCol >= 0 ? String(aoa[rowIdx][woCol] || '').trim() : '';
+          var tpVal = typeCol >= 0 ? String(aoa[rowIdx][typeCol] || '').trim() : '';
           if (wo) {
-            var slot = byRec[wo] = byRec[wo] || { bd: [], jj: [], sm: [] };
-            slot[an.tp].push(poolIdx);
+            var recKey = wo + '|' + tpVal;
+            var slot = byRec[recKey] = byRec[recKey] || { bd: [], jj: [], sm: [] };
+            slot[an.tp].push({ i: poolIdx, r: rowIdx - 1 }); // r = allRows 下标（an.row 含表头，需 -1）
           }
         }
         return null;
@@ -6062,7 +6069,7 @@ function renderTrial() {
   if (exportBtn) exportBtn.style.display = hasExport ? '' : 'none';
   if (!t || !t.recs || !t.recs.length) {
     el.innerHTML = '<div class="trial-empty"><div class="trial-empty-ico">📊</div>' +
-      '<div><b>试模分析</b></div><div style="margin-top:6px">点击右上角「选择文件夹」，读取其中全部 MES汇总_*.xlsx（格式相同）<br>→ BD列(称重照片)非空 → 按工单号去重 → 试模数据与差异分析</div>' +
+      '<div><b>试模分析</b></div><div style="margin-top:6px">点击右上角「选择文件夹」，读取其中全部 MES汇总_*.xlsx（格式相同）<br>→ BD列(称重照片)非空 → 按工单号+类型去重（双色机台保留A/B两行）→ 试模数据与差异分析</div>' +
       '<div style="margin-top:10px;font-size:12.5px;color:var(--text-secondary)">差异 = 实际 − 标准（↑红超耗 / ↓绿省料）· 支持导出 Excel</div></div>';
     return;
   }
@@ -6228,15 +6235,16 @@ async function _trialParseFiles(files, dirName) {
           if (!aoa.length) continue;
           fileNames.push(files[fi].name);
           if (!headers) headers = aoa[0].map(function(x) { return String(x == null ? '' : x).trim(); });
+          var rowOffset = allRows.length; // 本文件首行在全局 allRows 中的下标
           // 提取图片（称重照片 / 进胶平衡性 / 试模照片）
           var fileImgs = await _trialExtractImages(buf, aoa, headers);
           if (fileImgs && fileImgs.pool.length) {
             var baseIdx = imgPool.length;
             fileImgs.pool.forEach(function(img) { imgPool.push(img); });
-            Object.keys(fileImgs.byRec).forEach(function(wo) {
-              var tgt = imgByRec[wo] = imgByRec[wo] || { bd: [], jj: [], sm: [] };
+            Object.keys(fileImgs.byRec).forEach(function(k) {
+              var tgt = imgByRec[k] = imgByRec[k] || { bd: [], jj: [], sm: [] };
               ['bd', 'jj', 'sm'].forEach(function(tp) {
-                (fileImgs.byRec[wo][tp] || []).forEach(function(i) { tgt[tp].push(i + baseIdx); });
+                (fileImgs.byRec[k][tp] || []).forEach(function(o) { tgt[tp].push({ i: o.i + baseIdx, r: o.r + rowOffset }); });
               });
             });
           }
@@ -6245,7 +6253,7 @@ async function _trialParseFiles(files, dirName) {
         if (!headers || !allRows.length) { showToast('没有读到数据行'); renderTrial(); return; }
         // 基础字段列定位
         var baseCols = {};
-        ['工单号','模具编号','产品编号','产品名称','机台名','记录时间','循环时间(s)','标准周期','试模问题','调机人','调机报废数量'].forEach(function(n) {
+        ['工单号','类型','模具编号','产品编号','产品名称','机台名','记录时间','循环时间(s)','标准周期','试模问题','调机人','调机报废数量'].forEach(function(n) {
           baseCols[n] = _trialColIdx(headers, n);
         });
         var pairs = [];
@@ -6254,7 +6262,7 @@ async function _trialParseFiles(files, dirName) {
           var bn = headers[pr[1]] || ('第' + (pr[1] + 1) + '列');
           pairs.push({ a: an, b: bn, d: _trialDiffName(an), ai: pr[0], bi: pr[1] });
         });
-        // BD 非空 → 工单号去重（keep first）
+        // BD 非空 → 工单号+类型去重（keep first；单色机台类型为空，双色机台保留A/B两行）
         var bdCount = 0, seen = {}, recs = [];
         for (var i = 0; i < allRows.length; i++) {
           var row = allRows[i];
@@ -6262,7 +6270,8 @@ async function _trialParseFiles(files, dirName) {
           if (bd === undefined || bd === null || String(bd).trim() === '') continue;
           bdCount++;
           var wo = baseCols['工单号'] >= 0 ? row[baseCols['工单号']] : row[1];
-          var key = String(wo == null ? '' : wo).trim();
+          var typeVal = baseCols['类型'] >= 0 ? row[baseCols['类型']] : '';
+          var key = String(wo == null ? '' : wo).trim() + '|' + String(typeVal == null ? '' : typeVal).trim();
           if (!key || seen[key]) continue;
           seen[key] = true;
           var rec = {};
@@ -6270,7 +6279,7 @@ async function _trialParseFiles(files, dirName) {
           headers.forEach(function(h, idx) {
             if (h) rec[h] = row[idx];
           });
-          rec['工单号'] = key;
+          rec['工单号'] = String(wo == null ? '' : wo).trim();
           ['模具编号','产品编号','产品名称','机台名','试模问题','调机人'].forEach(function(n) {
             var ci = baseCols[n];
             if (ci >= 0 && row[ci] != null) rec[n] = String(row[ci]).trim();
@@ -6288,10 +6297,17 @@ async function _trialParseFiles(files, dirName) {
             rec[p.d] = (av !== null && bv !== null) ? Math.round((av - bv) * 10000) / 10000 : null;
           });
           // 绑定图片索引（bd=称重照片 jj=进胶平衡性 sm=试模照片）
+          // 只保留来源行 === 当前首现行（i）的图片：去重掉的重复行图片不混入（防重复）
           if (imgByRec[key]) {
-            if (imgByRec[key].bd && imgByRec[key].bd.length) rec.__imgs = imgByRec[key].bd.slice();
-            if (imgByRec[key].jj && imgByRec[key].jj.length) rec.__imgsJJ = imgByRec[key].jj.slice();
-            if (imgByRec[key].sm && imgByRec[key].sm.length) rec.__imgsSM = imgByRec[key].sm.slice();
+            var pick = function(arr) {
+              return arr.filter(function(o) { return o.r === i; }).map(function(o) { return o.i; });
+            };
+            var bdArr = pick(imgByRec[key].bd);
+            var jjArr = pick(imgByRec[key].jj);
+            var smArr = pick(imgByRec[key].sm);
+            if (bdArr.length) rec.__imgs = bdArr;
+            if (jjArr.length) rec.__imgsJJ = jjArr;
+            if (smArr.length) rec.__imgsSM = smArr;
           }
           recs.push(rec);
         }
