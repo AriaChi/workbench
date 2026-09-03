@@ -1,5 +1,5 @@
 // 工艺文员工作台 Service Worker
-const CACHE_NAME = 'gongyi-workbench-v3.9';
+const CACHE_NAME = 'gongyi-workbench-v4.0';
 const urlsToCache = [
   '/index.html',
   '/manifest.json',
