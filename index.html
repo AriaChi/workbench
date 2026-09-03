@@ -5973,7 +5973,7 @@ function _trialIsoWeek(dt) {
   return { year: t.getUTCFullYear(), week: week };
 }
 
-// 从试模 xlsx 中提取 BD 列（称重照片）图片
+// 从试模 xlsx 中提取三种图片列图片：称重照片(BD) / 进胶平衡性 / 试模照片
 async function _trialExtractImages(buf, aoa, headers) {
   if (!window.JSZip) return { pool: [], byRec: {} };
   try {
@@ -5988,6 +5988,15 @@ async function _trialExtractImages(buf, aoa, headers) {
       var tgtM = /\bTarget="([^"]+)"/.exec(rt[0]);
       if (idM && tgtM) rmap[idM[1]] = tgtM[1];
     }
+    // 三种图片列的列号（按表头名动态定位，称重照片兜底 BD=55）
+    var colOf = { bd: -1, jj: -1, sm: -1 };
+    for (var hc = 0; hc < headers.length; hc++) {
+      var hn = String(headers[hc] == null ? '' : headers[hc]).trim();
+      if (hn === '称重照片' && colOf.bd < 0) colOf.bd = hc;
+      else if (hn === '进胶平衡性' && colOf.jj < 0) colOf.jj = hc;
+      else if (hn === '试模照片' && colOf.sm < 0) colOf.sm = hc;
+    }
+    if (colOf.bd < 0) colOf.bd = TRIAL_BD_IDX;
     var anchors = [];
     var anchorRe = /<(?:xdr:)?(oneCellAnchor|twoCellAnchor)[\s\S]*?<\/(?:xdr:)?\1>/g, ma;
     while ((ma = anchorRe.exec(d))) {
@@ -5996,11 +6005,16 @@ async function _trialExtractImages(buf, aoa, headers) {
       var rowM = /<(?:xdr:)?row>(\d+)<\/(?:xdr:)?row>/.exec(a);
       var embM = /r:embed="(rId\d+)"/.exec(a);
       if (!colM || !rowM || !embM) continue;
-      if (+colM[1] !== TRIAL_BD_IDX) continue; // 只取 BD 列
+      var cnum = +colM[1];
+      var tp = null; // bd=称重照片 jj=进胶平衡性 sm=试模照片
+      if (cnum === colOf.bd) tp = 'bd';
+      else if (cnum === colOf.jj) tp = 'jj';
+      else if (cnum === colOf.sm) tp = 'sm';
+      if (!tp) continue;
       var target = rmap[embM[1]];
       if (!target) continue;
       var mediaPath = 'xl/media/' + target.split('/').pop();
-      anchors.push({ col: +colM[1], row: +rowM[1], path: mediaPath });
+      anchors.push({ col: cnum, row: +rowM[1], path: mediaPath, tp: tp });
     }
     var pool = [], byRec = {};
     var woCol = -1;
@@ -6020,7 +6034,10 @@ async function _trialExtractImages(buf, aoa, headers) {
         var rowIdx = an.row; // drawing XML 的 row 即 aoa 下标
         if (rowIdx >= 0 && rowIdx < aoa.length) {
           var wo = woCol >= 0 ? String(aoa[rowIdx][woCol] || '').trim() : '';
-          if (wo) (byRec[wo] = byRec[wo] || []).push(poolIdx);
+          if (wo) {
+            var slot = byRec[wo] = byRec[wo] || { bd: [], jj: [], sm: [] };
+            slot[an.tp].push(poolIdx);
+          }
         }
         return null;
       });
@@ -6211,13 +6228,16 @@ async function _trialParseFiles(files, dirName) {
           if (!aoa.length) continue;
           fileNames.push(files[fi].name);
           if (!headers) headers = aoa[0].map(function(x) { return String(x == null ? '' : x).trim(); });
-          // 提取图片（BD列=称重照片）
+          // 提取图片（称重照片 / 进胶平衡性 / 试模照片）
           var fileImgs = await _trialExtractImages(buf, aoa, headers);
           if (fileImgs && fileImgs.pool.length) {
             var baseIdx = imgPool.length;
             fileImgs.pool.forEach(function(img) { imgPool.push(img); });
             Object.keys(fileImgs.byRec).forEach(function(wo) {
-              (imgByRec[wo] = imgByRec[wo] || []).push.apply(imgByRec[wo], fileImgs.byRec[wo].map(function(i) { return i + baseIdx; }));
+              var tgt = imgByRec[wo] = imgByRec[wo] || { bd: [], jj: [], sm: [] };
+              ['bd', 'jj', 'sm'].forEach(function(tp) {
+                (fileImgs.byRec[wo][tp] || []).forEach(function(i) { tgt[tp].push(i + baseIdx); });
+              });
             });
           }
           for (var ri = 1; ri < aoa.length; ri++) allRows.push(aoa[ri]);
@@ -6267,9 +6287,11 @@ async function _trialParseFiles(files, dirName) {
             rec[p.a] = av; rec[p.b] = bv;
             rec[p.d] = (av !== null && bv !== null) ? Math.round((av - bv) * 10000) / 10000 : null;
           });
-          // 绑定图片索引
-          if (imgByRec[key] && imgByRec[key].length) {
-            rec.__imgs = imgByRec[key].slice();
+          // 绑定图片索引（bd=称重照片 jj=进胶平衡性 sm=试模照片）
+          if (imgByRec[key]) {
+            if (imgByRec[key].bd && imgByRec[key].bd.length) rec.__imgs = imgByRec[key].bd.slice();
+            if (imgByRec[key].jj && imgByRec[key].jj.length) rec.__imgsJJ = imgByRec[key].jj.slice();
+            if (imgByRec[key].sm && imgByRec[key].sm.length) rec.__imgsSM = imgByRec[key].sm.slice();
           }
           recs.push(rec);
         }
@@ -6371,20 +6393,57 @@ function trialExportExcel() {
         } else { c.value = v ? String(v) : ''; c.font = { color:{argb:'FFD68910'}, bold:true }; }
         center(c);
       }
-      // Sheet1 试模明细 — 原始列 + 分析列；BD「称重照片」列移到末尾作为图片列
+      // Sheet1 试模明细 — 原始列 + 分析列；三种图片列移到末尾：
+      // 称重照片（数量不定，按最大张数铺列）+ 进胶平衡性（预留4格）+ 试模照片（预留4格），每张图嵌一格，不够空着
       var ws = wb.addWorksheet('试模明细', { views:[{ state:'frozen', ySplit:1 }] });
       var rawHeaders = (t.headers || []).slice();
-      var hasImgs = !!( _trialImgPool && _trialImgPool.length);
-      var bdAt = rawHeaders.indexOf('称重照片');
-      if (bdAt >= 0) rawHeaders.splice(bdAt, 1);            // 从中段移除（原位置为图片单元格，无文本）
+      var hasImgs = !!(_trialImgPool && _trialImgPool.length);
+      var origImgCols = {};
+      ['称重照片', '进胶平衡性', '试模照片'].forEach(function(ic) {
+        var at = rawHeaders.indexOf(ic);
+        if (at >= 0) { origImgCols[ic] = true; rawHeaders.splice(at, 1); } // 从中段移除（原位置为图片单元格，无文本）
+      });
       var extraCols = ['试模日期', '循环差异'];
       pairs.forEach(function(p) { extraCols.push(p.d); });
       extraCols.forEach(function(c) { if (rawHeaders.indexOf(c) < 0) rawHeaders.push(c); });
-      if (hasImgs || bdAt >= 0) rawHeaders.push('称重照片'); // 图片列放到所有数据列的最后面
+      // 图片区：称重照片列数 = 全部记录中最大张数（至少1）；另两种固定4格
+      var maxBD = 1;
+      recs.forEach(function(r) { if (r.__imgs && r.__imgs.length > maxBD) maxBD = r.__imgs.length; });
+      var JJ_SLOTS = 4, SM_SLOTS = 4;
+      var hasImgZone = hasImgs || origImgCols['称重照片'] || origImgCols['进胶平衡性'] || origImgCols['试模照片'];
+      var bd0 = -1, jj0 = -1, sm0 = -1;
+      if (hasImgZone) {
+        bd0 = rawHeaders.length;
+        for (var k = 0; k < maxBD; k++) rawHeaders.push(k === 0 ? '称重照片' : '');
+        jj0 = rawHeaders.length;
+        for (var k = 0; k < JJ_SLOTS; k++) rawHeaders.push(k === 0 ? '进胶平衡性' : '');
+        sm0 = rawHeaders.length;
+        for (var k = 0; k < SM_SLOTS; k++) rawHeaders.push(k === 0 ? '试模照片' : '');
+      }
       var head = rawHeaders;
       var pairDiffSet = {};
       pairs.forEach(function(p) { pairDiffSet[p.d] = p; });
       var hr = ws.addRow(head); hr.eachCell(hdr);
+      // 图片区表头合并（同一类型的多个格子合为一格表头）
+      if (hasImgZone) {
+        if (maxBD > 1) ws.mergeCells(1, bd0 + 1, 1, bd0 + maxBD);
+        if (JJ_SLOTS > 1) ws.mergeCells(1, jj0 + 1, 1, jj0 + JJ_SLOTS);
+        if (SM_SLOTS > 1) ws.mergeCells(1, sm0 + 1, 1, sm0 + SM_SLOTS);
+      }
+      // 嵌入一张图片到指定列/行，返回图片显示高度（px），无图返回 0
+      var IMG_W = 100, IMG_H = 130;
+      function drawImg(list, k, colIdx, ridx) {
+        if (!list || k >= list.length || !_trialImgPool) return 0;
+        var img = _trialImgPool[list[k]];
+        if (!img || !img.data) return 0;
+        var wpx = Math.min(img.w || IMG_W, IMG_W), hpx = Math.min(img.h || IMG_H, IMG_H);
+        var imgId = wb.addImage({
+          buffer: img.data.buffer.slice(img.data.byteOffset, img.data.byteOffset + img.data.byteLength),
+          extension: img.ext
+        });
+        ws.addImage(imgId, { tl: { col: colIdx, row: ridx + 1 }, ext: { width: wpx, height: hpx } });
+        return hpx;
+      }
       recs.forEach(function(r, ridx) {
         var row = [];
         head.forEach(function(h) {
@@ -6392,6 +6451,7 @@ function trialExportExcel() {
           row.push(v === undefined || v === null ? '' : v);
         });
         var xr = ws.addRow(row);
+        var rowMaxH = 0;
         head.forEach(function(h, idx) {
           var c = xr.getCell(idx + 1);
           var v = r[h];
@@ -6406,29 +6466,24 @@ function trialExportExcel() {
               var lbl = (av === null || av === undefined) ? ((bv !== null && bv !== undefined) ? '缺实际值' : '无数据') : '缺标准值';
               c.value = lbl; diffCell(c, lbl);
             }
-          } else if (h === '称重照片') {
-            // 嵌入图片（同一工单多张时并排铺开）
-            if (r.__imgs && r.__imgs.length && _trialImgPool) {
-              var imgIdxs = r.__imgs, drewImg = false;
-              var maxWpx = 110, maxHpx = 150; // 单图显示上限（px）
-              imgIdxs.forEach(function(pi, ki) {
-                var img = _trialImgPool[pi];
-                if (!img || !img.data) return;
-                var wpx = Math.min(img.w || maxWpx, maxWpx), hpx = Math.min(img.h || maxHpx, maxHpx);
-                var imgId = wb.addImage({
-                  buffer: img.data.buffer.slice(img.data.byteOffset, img.data.byteOffset + img.data.byteLength),
-                  extension: img.ext
-                });
-                ws.addImage(imgId, { tl: { col: idx + ki, row: ridx + 1 }, ext: { width: wpx, height: hpx } });
-                drewImg = true;
-              });
-              if (drewImg) c.value = '';
-            }
+          } else if (hasImgZone && idx >= bd0 && idx < bd0 + maxBD) {
+            // 称重照片第 (idx - bd0) 张（每格一张，不够的空着）
+            rowMaxH = Math.max(rowMaxH, drawImg(r.__imgs, idx - bd0, idx, ridx));
+            center(c);
+          } else if (hasImgZone && idx >= jj0 && idx < jj0 + JJ_SLOTS) {
+            // 进胶平衡性（预留4格）
+            rowMaxH = Math.max(rowMaxH, drawImg(r.__imgsJJ, idx - jj0, idx, ridx));
+            center(c);
+          } else if (hasImgZone && idx >= sm0 && idx < sm0 + SM_SLOTS) {
+            // 试模照片（预留4格）
+            rowMaxH = Math.max(rowMaxH, drawImg(r.__imgsSM, idx - sm0, idx, ridx));
             center(c);
           } else {
             numCell(c, v, h);
           }
         });
+        // 行高按该行最高一张图片放大
+        if (rowMaxH) ws.getRow(ridx + 2).height = rowMaxH * 0.75 + 4;
       });
       head.forEach(function(h, idx) {
         var w = 14;
@@ -6436,21 +6491,9 @@ function trialExportExcel() {
         else if (h === '产品编号' || h === '产品名称' || h.indexOf('模具') >= 0) w = 18;
         else if (h === '试模日期') w = 12;
         else if (h === '循环差异' || h.indexOf('差异') >= 0 || h.indexOf('差') >= 0) w = 16;
-        else if (h === '称重照片') w = 18;
+        else if (hasImgZone && idx >= bd0) w = 15; // 图片区列宽
         ws.getColumn(idx + 1).width = w;
       });
-      // 有图片时按最高一张增加行高
-      if (hasImgs) {
-        recs.forEach(function(r, ridx) {
-          if (!(r.__imgs && r.__imgs.length) || !_trialImgPool) return;
-          var maxH = 0;
-          r.__imgs.forEach(function(pi) {
-            var img = _trialImgPool[pi];
-            if (img && img.h) maxH = Math.max(maxH, Math.min(img.h, 150));
-          });
-          if (maxH) ws.getRow(ridx + 2).height = maxH * 0.75 + 4;
-        });
-      }
       // Sheet2 差异汇总
       var ws2 = wb.addWorksheet('差异汇总');
       var hr2 = ws2.addRow(['指标','超耗↑','省料↓','持平=','缺实际值','缺标准值','均无']);
