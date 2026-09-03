@@ -3752,62 +3752,6 @@ function clearAllMesFiles() {
   showToast('已清除全部文件');
 }
 
-// ═══ MES 文件夹一键抓取 ═══
-// 记录最近一次选择的文件夹（页面内存，File 对象无法序列化，刷新后需重选一次）
-var MES_AUTO_RULES = [
-  { type: 'file',     keys: ['工艺实时监测值'],                    label: 'Excel 1 · MES 导出文件',   fn: null },
-  { type: 'person',   keys: ['调机记录'],                          label: 'Excel 2 · 调机记录表',     fn: null },
-  { type: 'material', keys: ['物料操作记录', '物料记录'],           label: 'Excel 3 · 物料操作记录表',  fn: null },
-  { type: 'weight',   keys: ['克重记录'],                          label: 'Excel 4 · 克重记录',       fn: null },
-  { type: 'trial',    keys: ['试模记录'],                          label: 'Excel 5 · 试模记录',       fn: null }
-];
-MES_AUTO_RULES[0].fn = parseMesExcel;
-MES_AUTO_RULES[1].fn = parseMesPersonExcel;
-MES_AUTO_RULES[2].fn = parseMesMaterialExcel;
-MES_AUTO_RULES[3].fn = parseMesWeightExcel;
-MES_AUTO_RULES[4].fn = parseMesTrialExcel;
-
-// 用户选择文件夹（webkitdirectory）：记忆文件列表并立即自动抓取
-function onMesDirSelected(input) {
-  var files = input.files;
-  if (!files || !files.length) return;
-  input.value = '';
-  window._mesDirFiles = Array.prototype.slice.call(files);
-  var rel = window._mesDirFiles[0].webkitRelativePath || '';
-  window._mesDirName = rel.split('/')[0] || '';
-  renderSupervision();   // 先刷新工具栏显示已选文件夹，再开始自动抓取
-  autoPickMesFiles();
-}
-
-// 自动抓取：遍历已选文件夹的文件，按文件名关键词匹配 5 个板块（同类型多个文件取最新）
-function autoPickMesFiles() {
-  var files = window._mesDirFiles;
-  if (!files || !files.length) { showToast('请先点击「选择文件夹」'); return; }
-  var matched = {}, used = {};
-  MES_AUTO_RULES.forEach(function(rule) {
-    var best = null;
-    files.forEach(function(f) {
-      if (used[f.name]) return;                 // 同一文件只归属一个板块
-      if (!/\.(xlsx|xls)$/i.test(f.name)) return;
-      var hit = false;
-      for (var k = 0; k < rule.keys.length; k++) if (f.name.indexOf(rule.keys[k]) >= 0) { hit = true; break; }
-      if (!hit) return;
-      if (!best || f.lastModified > best.lastModified) best = f; // 多天文件共存时取最新
-    });
-    if (best) { used[best.name] = true; matched[rule.type] = best; }
-  });
-  var found = 0, miss = [];
-  MES_AUTO_RULES.forEach(function(rule) {
-    var f = matched[rule.type];
-    if (!f) { miss.push(rule.label); return; }
-    found++;
-    try { rule.fn(f); } catch (ex) { console.error('自动抓取 ' + rule.label + ' 失败', ex); }
-  });
-  if (!found) { showToast('文件夹里没有匹配到任何已知类型的 MES 文件'); return; }
-  if (miss.length) showToast('自动抓取：已匹配 ' + found + '/5 个文件，未找到：' + miss.join('、'));
-  else showToast('✅ 5 个文件全部匹配，正在依次解析（' + files.length + ' 个文件中自动识别）…');
-}
-
 // 拖拽 Excel 到 MES 导入卡片（type: file / person / material / weight）
 function _mesDzDragOver(e) {
   e.preventDefault();
@@ -4380,21 +4324,7 @@ function renderSupMesCheck() {
   var trial = store.mesTrialData;
   var html = '';
 
-  // ⓪ 文件夹一键抓取工具栏：选择一次文件夹 → 点击自动抓取，依次匹配 5 个板块对应名称的 Excel
-  var dirFiles = window._mesDirFiles, dirName = window._mesDirName || '';
-  html += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;border:1px dashed rgba(0,168,120,.4);border-radius:10px;background:rgba(0,168,120,.06)">'
-    + '<b style="font-size:14px;white-space:nowrap">📁 文件夹一键抓取</b>'
-    + '<button class="btn btn-primary" onclick="document.getElementById(\'mes-dir-input\').click()" style="white-space:nowrap">选择文件夹</button>'
-    + '<button class="btn btn-outline" onclick="autoPickMesFiles()" id="mes-autopick-btn" style="white-space:nowrap"' + (dirFiles && dirFiles.length ? '' : ' disabled title="请先点击「选择文件夹」"') + '>⚡ 自动抓取</button>'
-    + '<input type="file" id="mes-dir-input" webkitdirectory directory multiple style="display:none" onchange="onMesDirSelected(this)">'
-    + '<span class="text-sm text-secondary" style="margin-left:auto">'
-    + (dirFiles && dirFiles.length
-        ? '已选文件夹：<b>' + escapeHtml(dirName || '（未知）') + '</b> · ' + dirFiles.length + ' 个文件（可再点「自动抓取」重跑）'
-        : '选择含当天 5 个 MES 文件的文件夹，自动识别并依次填入 5 个板块')
-    + '</span>'
-    + '</div>';
-
-  // ① 五个导入卡片（始终显示），支持从桌面直接拖入 Excel，也可用上方文件夹一键抓取
+  // ① 五个导入卡片（始终显示），支持从桌面直接拖入 Excel
   html += '<div class="mes-dropzone-wrap">'
     + '<div class="mes-dropzone" id="mes-dz-left" ondragover="_mesDzDragOver(event)" ondragleave="_mesDzDragLeave(event)" ondrop="_mesDzDrop(event, \'file\')">'
     + '<div class="dz-icon">📂</div>'
