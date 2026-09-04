@@ -4392,7 +4392,7 @@ function renderSupMesCheck() {
     + '<div class="mes-dropzone" id="mes-dz-trial" ondragover="_mesDzDragOver(event)" ondragleave="_mesDzDragLeave(event)" ondrop="_mesDzDrop(event, \'trial\')">'
     + '<div class="dz-icon">📷</div>'
     + '<div class="dz-title">Excel 5 — 试模记录</div>'
-    + '<div class="dz-desc">拖入即可<br>"试模记录" Excel：C 列=工单号，取人员/称重照片/进胶平衡性/热流道温度/试模问题/试模照片/试模次数，按工单号匹配填入末尾（含图片）</div>'
+    + '<div class="dz-desc">拖入即可<br>"试模记录" Excel：C 列=工单号，取人员/称重照片/进胶平衡性/热流道温度1/2/试模问题/试模照片/试模次数/试模次数（大于T5），按工单号匹配填入末尾（含图片）</div>'
     + '<div class="dz-btn"><button class="btn btn-primary" onclick="document.getElementById(\'mes-trial-excel-input\').click()" id="mes-trial-btn">选择试模记录</button></div>'
     + '<input type="file" id="mes-trial-excel-input" accept=".xlsx,.xls" style="display:none" onchange="onMesTrialFileSelected(this)">'
     + (trial ? '<div style="color:var(--accent);font-size:12px;margin-top:6px">✅ ' + escapeHtml(trial.fileName) + '（' + trial.rowCount + ' 条）' + (_mesTrialImgPool ? '' : ' ⚠️ 刷新后需重新导入') + '<button class="btn btn-outline btn-sm" onclick="clearMesTrialData()" style="margin-left:8px">清除</button></div>' : '')
