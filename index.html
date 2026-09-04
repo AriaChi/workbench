@@ -3567,13 +3567,14 @@ function clearMesWeightData() {
 
 // ═══════════════ Excel 5: 试模记录（按工单号匹配 + 嵌入图片） ═══════════════
 // 源表列（0-based）：A=0 日期、B=1 人员（试模人）、C=2 工单号、F:G=6 称重照片、
-// H:I=8 进胶平衡性、J=9 热流道温度-1、K=10 热流道温度-2、L=11 模温机温度、M=12 试模问题、N:O=14 问题图片
+// H:I=8 进胶平衡性、J=9 热流道温度-1、K=10 热流道温度-2、L=11 试模问题、M=12 问题图片、
+// O=14 试模次数、P=15 试模次数（大于T5）
 var MES_TRIAL_ORDER_COL = 2;    // C 列 = 工单号
 var MES_TRIAL_PERSON_COL = 1;   // B 列 = 人员（试模人）
-var MES_TRIAL_TEXT_COLS = { J: 9, K: 10, L: 11, M: 12 };
+var MES_TRIAL_TEXT_COLS = { J: 9, K: 10, L: 11, O: 14, P: 15 };
 var MES_TRIAL_IMG_COLS = { G: 6, I: 8, O: 14 }; // 称重照片 / 进胶平衡性 / 试模照片
-// 试模 8 列标题（顺序 = 合成表追加列顺序）
-var MES_TRIAL_HEADERS = ['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '模温机温度', '试模问题', '试模照片'];
+// 试模 9 列标题（顺序 = 合成表追加列顺序；与源表列一一对应，模温机温度源表无此列）
+var MES_TRIAL_HEADERS = ['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '试模问题', '试模照片', '试模次数', '试模次数（大于T5）'];
 // 图片内存池（不入 store，刷新后需重新导入；与 rawWorkbook 同一策略）
 var _mesTrialImgPool = null; // [{ ext, data: Uint8Array, w, h, srcW, srcH }]
 
@@ -3614,7 +3615,8 @@ function parseMesTrialExcel(file) {
                   j: row[MES_TRIAL_TEXT_COLS.J] != null ? row[MES_TRIAL_TEXT_COLS.J] : '',
                   k: row[MES_TRIAL_TEXT_COLS.K] != null ? row[MES_TRIAL_TEXT_COLS.K] : '',
                   l: row[MES_TRIAL_TEXT_COLS.L] != null ? row[MES_TRIAL_TEXT_COLS.L] : '',
-                  m: row[MES_TRIAL_TEXT_COLS.M] != null ? row[MES_TRIAL_TEXT_COLS.M] : '',
+                  trialCount: row[MES_TRIAL_TEXT_COLS.O] != null ? row[MES_TRIAL_TEXT_COLS.O] : '',
+                  trialCountGT5: row[MES_TRIAL_TEXT_COLS.P] != null ? row[MES_TRIAL_TEXT_COLS.P] : '',
                   // 图片锚点 key = "列:数据行下标"（drawing XML 的 row 即 aoa 下标，与源表 R2→row=1 对应）
                   gImgs: byCell[MES_TRIAL_IMG_COLS.G + ':' + i] || [],
                   iImgs: byCell[MES_TRIAL_IMG_COLS.I + ':' + i] || [],
@@ -3910,9 +3912,10 @@ function _mesBuildMergeTable() {
           row[tStart + 2] = trec.iImgs.length ? trec.iImgs.length + ' 张' : '';    // 进胶平衡性
           row[tStart + 3] = trec.j;                                                // 热流道温度1
           row[tStart + 4] = trec.k;                                                // 热流道温度2
-          row[tStart + 5] = trec.l;                                                // 模温机温度
-          row[tStart + 6] = trec.m;                                                // 试模问题
-          row[tStart + 7] = trec.oImgs.length ? trec.oImgs.length + ' 张' : '';    // 试模照片
+          row[tStart + 5] = trec.l;                                                // 试模问题
+          row[tStart + 6] = trec.oImgs.length ? trec.oImgs.length + ' 张' : '';    // 试模照片
+          row[tStart + 7] = trec.trialCount;                                       // 试模次数
+          row[tStart + 8] = trec.trialCountGT5;                                    // 试模次数（大于T5）
           trialRows[rows.length] = ti;
           matchedTrialIdx[ti] = true;
           matchedTrial++;
@@ -3936,9 +3939,10 @@ function _mesBuildMergeTable() {
       row2[tStart + 2] = tr2.iImgs.length ? tr2.iImgs.length + ' 张' : '';    // 进胶平衡性
       row2[tStart + 3] = tr2.j;                                               // 热流道温度1
       row2[tStart + 4] = tr2.k;                                               // 热流道温度2
-      row2[tStart + 5] = tr2.l;                                               // 模温机温度
-      row2[tStart + 6] = tr2.m;                                               // 试模问题
-      row2[tStart + 7] = tr2.oImgs.length ? tr2.oImgs.length + ' 张' : '';    // 试模照片
+      row2[tStart + 5] = tr2.l;                                               // 试模问题
+      row2[tStart + 6] = tr2.oImgs.length ? tr2.oImgs.length + ' 张' : '';    // 试模照片
+      row2[tStart + 7] = tr2.trialCount;                                      // 试模次数
+      row2[tStart + 8] = tr2.trialCountGT5;                                   // 试模次数（大于T5）
       trialRows[rows.length] = ti2;
       rows.push(row2);
     }
@@ -4127,7 +4131,7 @@ function _renderMesMergeSection() {
   if (cache.weightHeaders && cache.weightHeaders.length) {
     cols = cols.concat(cache.weightHeaders.slice(0, 4)); // 预览前 4 个克重列
   }
-  cols = cols.concat(['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '模温机温度', '试模问题', '试模照片']);
+  cols = cols.concat(['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '试模问题', '试模照片', '试模次数', '试模次数（大于T5）']);
   var colIdx = {};
   cache.headers.forEach(function(h, i) { colIdx[h] = i; });
   var preview = cache.rows.slice(0, 30);
@@ -4388,7 +4392,7 @@ function renderSupMesCheck() {
     + '<div class="mes-dropzone" id="mes-dz-trial" ondragover="_mesDzDragOver(event)" ondragleave="_mesDzDragLeave(event)" ondrop="_mesDzDrop(event, \'trial\')">'
     + '<div class="dz-icon">📷</div>'
     + '<div class="dz-title">Excel 5 — 试模记录</div>'
-    + '<div class="dz-desc">拖入即可<br>"试模记录" Excel：C 列=工单号，取人员/称重照片/进胶平衡性/热流道温度/模温机温度/试模问题/试模照片，按工单号匹配填入末尾（含图片）</div>'
+    + '<div class="dz-desc">拖入即可<br>"试模记录" Excel：C 列=工单号，取人员/称重照片/进胶平衡性/热流道温度/试模问题/试模照片/试模次数，按工单号匹配填入末尾（含图片）</div>'
     + '<div class="dz-btn"><button class="btn btn-primary" onclick="document.getElementById(\'mes-trial-excel-input\').click()" id="mes-trial-btn">选择试模记录</button></div>'
     + '<input type="file" id="mes-trial-excel-input" accept=".xlsx,.xls" style="display:none" onchange="onMesTrialFileSelected(this)">'
     + (trial ? '<div style="color:var(--accent);font-size:12px;margin-top:6px">✅ ' + escapeHtml(trial.fileName) + '（' + trial.rowCount + ' 条）' + (_mesTrialImgPool ? '' : ' ⚠️ 刷新后需重新导入') + '<button class="btn btn-outline btn-sm" onclick="clearMesTrialData()" style="margin-left:8px">清除</button></div>' : '')
@@ -4448,7 +4452,7 @@ function showMesExportHelp() {
     + '<ol style="padding-left:20px">'
     + '<li>在 MES 系统导出「<b>工艺实时监测值</b>」（所有机台，含记录时间）、「<b>调机记录表</b>」（含结束时间、调机结束人）、「<b>物料操作记录</b>」（含操作时间、物料编号、物料名称、批号）、「<b>克重记录</b>」（A 列=工单号）和「<b>试模记录</b>」（C 列=工单号，含试模人、称重照片、进胶平衡性、温度、试模问题、试模照片）</li>'
     + '<li>回到工作台，依次导入文件 1 / 2 / 3 / 4 / 5（<b>可直接从桌面拖入</b>，也可点按钮选择；克重与试模记录为可选）</li>'
-    + '<li>点「🔄 生成合并表」：自动把所有机台 sheet 合并为一张表，并按工位编号 + 时间匹配调机人和物料（取时间点之前最近一条记录），再按<b>工单号</b>匹配克重记录（F、L~U、X、Y、AB~AG 列）和试模记录（试模人/称重照片/进胶平衡性/热流道温度1/热流道温度2/模温机温度/试模问题/试模照片）填入表尾</li>'
+    + '<li>点「🔄 生成合并表」：自动把所有机台 sheet 合并为一张表，并按工位编号 + 时间匹配调机人和物料（取时间点之前最近一条记录），再按<b>工单号</b>匹配克重记录（F、L~U、X、Y、AB~AG 列）和试模记录（试模人/称重照片/进胶平衡性/热流道温度1/热流道温度2/试模问题/试模照片/试模次数/试模次数（大于T5））填入表尾</li>'
     + '<li>点「📥 填入目标文件」：选择你的本地汇总 Excel，整个数据（所有列）自动追加到该文件<b>最后一个 sheet 页</b>的末尾</li>'
     + '<li>首次填入会写入表头 + 数据；之后每天追加，<b>不重复写表头</b></li>'
     + '<li>未匹配到物料的记录，物料编号 / 物料名称列标记为「<b style="color:#B45309">无记录</b>」（黄色高亮）</li>'
@@ -5044,15 +5048,15 @@ function _mesAutoFitColumns(ws, cache) {
       if (w > maxW[ci]) maxW[ci] = w;
     });
   });
-  // 图片列（相对 tStart 偏移 1=称重照片 / 2=进胶平衡性 / 7=试模照片）：按图片总宽折算列宽
+  // 图片列（相对 tStart 偏移 1=称重照片 / 2=进胶平衡性 / 6=试模照片）：按图片总宽折算列宽
   if (cache.trialRows && store.mesTrialData && _mesTrialImgPool) {
     var trial = store.mesTrialData;
-    var relMap = { 1: 'gImgs', 2: 'iImgs', 7: 'oImgs' };
+    var relMap = { 1: 'gImgs', 2: 'iImgs', 6: 'oImgs' };
     var imgMaxW = {};
     Object.keys(cache.trialRows).forEach(function(ri) {
       var trec = trial.rows[cache.trialRows[ri]];
       if (!trec) return;
-      [1, 2, 7].forEach(function(rel) {
+      [1, 2, 6].forEach(function(rel) {
         var idxs = trec[relMap[rel]] || [];
         var total = 0;
         idxs.forEach(function(pidx) {
@@ -5079,14 +5083,14 @@ function _mesAutoFitColumns(ws, cache) {
 function _mesAddTrialImages(wb, ws, cache, startRow) {
   if (!cache || !cache.trialRows || !store.mesTrialData || !_mesTrialImgPool) return;
   var trial = store.mesTrialData;
-  var relMap = { 1: 'gImgs', 2: 'iImgs', 7: 'oImgs' };
+  var relMap = { 1: 'gImgs', 2: 'iImgs', 6: 'oImgs' };
   Object.keys(cache.trialRows).forEach(function(riStr) {
     var ri = +riStr;
     var trec = trial.rows[cache.trialRows[riStr]];
     if (!trec) return;
     var rowNum = startRow + ri;
     var maxH = 0;
-    [1, 2, 7].forEach(function(rel) {
+    [1, 2, 6].forEach(function(rel) {
       var idxs = trec[relMap[rel]] || [];
       if (!idxs.length) return;
       var colIdx = cache.tStart + rel; // 0-based 列索引
