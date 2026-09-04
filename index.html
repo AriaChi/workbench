@@ -3831,6 +3831,7 @@ function _mesBuildMergeTable() {
     trial.rows.forEach(function(tr, ti) { if (tr.order && !trialByOrder[tr.order]) trialByOrder[tr.order] = ti; });
   }
   var trialRows = {}; // 合成行下标 → 试模记录下标
+  var matchedTrialIdx = {}; // 已匹配的 trial.rows 下标集合（末尾追加独立行时跳过）
 
   wb.SheetNames.forEach(function(sn) {
     var ws = wb.Sheets[sn];
@@ -3913,12 +3914,35 @@ function _mesBuildMergeTable() {
           row[tStart + 6] = trec.m;                                                // 试模问题
           row[tStart + 7] = trec.oImgs.length ? trec.oImgs.length + ' 张' : '';    // 试模照片
           trialRows[rows.length] = ti;
+          matchedTrialIdx[ti] = true;
           matchedTrial++;
         }
       }
       rows.push(row);
     }
   });
+  // 末尾追加：试模记录独有的工单号（MES 汇总没匹配到的）作为独立行
+  // 字段不全：基础列仅填工单号，其他列留空；8 个试模列按现有 fill 逻辑填
+  if (trial && trial.rows && trial.rows.length) {
+    for (var ti2 = 0; ti2 < trial.rows.length; ti2++) {
+      if (matchedTrialIdx[ti2]) continue;
+      var tr2 = trial.rows[ti2];
+      if (!tr2.order) continue;
+      var row2 = new Array(fullHeaders.length).fill('');
+      var orderIdx2 = stdIdx['工单号'];
+      if (orderIdx2 != null) row2[orderIdx2] = tr2.order;
+      row2[tStart] = tr2.person;                                              // 试模人
+      row2[tStart + 1] = tr2.gImgs.length ? tr2.gImgs.length + ' 张' : '';    // 称重照片
+      row2[tStart + 2] = tr2.iImgs.length ? tr2.iImgs.length + ' 张' : '';    // 进胶平衡性
+      row2[tStart + 3] = tr2.j;                                               // 热流道温度1
+      row2[tStart + 4] = tr2.k;                                               // 热流道温度2
+      row2[tStart + 5] = tr2.l;                                               // 模温机温度
+      row2[tStart + 6] = tr2.m;                                               // 试模问题
+      row2[tStart + 7] = tr2.oImgs.length ? tr2.oImgs.length + ' 张' : '';    // 试模照片
+      trialRows[rows.length] = ti2;
+      rows.push(row2);
+    }
+  }
   return { headers: fullHeaders, rows: rows, matched: matched, matchedMaterial: matchedMaterial, matchedWeight: matchedWeight, weightHeaders: weightHeaders, total: rows.length, tStart: tStart, matchedTrial: matchedTrial, trialRows: trialRows };
 }
 
@@ -6310,6 +6334,34 @@ async function _trialParseFiles(files, dirName) {
             if (smArr.length) rec.__imgsSM = smArr;
           }
           recs.push(rec);
+        }
+        // 补充：从 store.mesTrialData 追加独立行（MES 汇总 xlsx 没识别到 BD 非空的工单号）
+        // 字段有限：仅填工单号/试模人/试模问题/试模日期，其他留空；图片不引入（避免 imgPool 索引错位）
+        if (store.mesTrialData && store.mesTrialData.rows && store.mesTrialData.rows.length) {
+          var seenByOrder = {};
+          recs.forEach(function(r) { seenByOrder[(r['工单号'] || '') + '|' + (r['类型'] || '')] = true; });
+          store.mesTrialData.rows.forEach(function(tr) {
+            if (!tr.order) return;
+            var key = tr.order + '|';
+            if (seenByOrder[key]) return;
+            seenByOrder[key] = true;
+            var rec = {
+              '工单号': tr.order,
+              '类型': '',
+              '模具编号': '', '产品编号': '', '产品名称': '', '机台名': '',
+              '记录时间': '',
+              '试模日期': '',
+              '循环时间': null, '标准周期': null, '循环差异': null,
+              '试模问题': tr.l || '',
+              '调机人': tr.person || '',
+              '调机报废': null,
+              '__dt': null
+            };
+            pairs.forEach(function(p) {
+              rec[p.a] = null; rec[p.b] = null; rec[p.d] = null;
+            });
+            recs.push(rec);
+          });
         }
         _trialImgPool = imgPool;
         _trialImgByRec = imgByRec;
