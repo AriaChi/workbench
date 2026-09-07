@@ -6636,23 +6636,35 @@ function _wkGather(weekKey) {
   // 工艺监察：机台符合率（当前快照）
   if (supervisionData && supervisionData.summary && supervisionData.summary.rows && supervisionData.summary.rows.length) {
     var s = supervisionData.summary;
+    // 识别"主要调机人"列：summary.headers 里模糊匹配
+    var topMechCol = findSupCol(s.headers, [/主要调机人|主调机人|主调|首席调机/i]);
+    if (!topMechCol) topMechCol = findSupCol(s.headers, [/调机人/]);
+    // 备选：直接以"面板"开头的列（如 "面板·调机人" "面板-调机人"）
+    if (!topMechCol) {
+      for (var hi = 0; hi < s.headers.length; hi++) {
+        var hh = s.headers[hi] || '';
+        if (hh.indexOf('调机') !== -1 && (hh.indexOf('面板') !== -1 || hh.indexOf('汇总') !== -1)) { topMechCol = hh; break; }
+      }
+    }
     var machines = [];
     s.rows.forEach(function(row) {
       var name = s.machineCol >= 0 ? String(row[s.headers[s.machineCol]] || '').trim() : '';
       var rate = s.rateCol >= 0 ? _parseRateValue(row[s.headers[s.rateCol]]) : NaN;
-      if (name) machines.push({ name: name, rate: isNaN(rate) ? null : rate });
+      var topMech = topMechCol ? String(row[topMechCol] || '').trim() : '';
+      if (name) machines.push({ name: name, rate: isNaN(rate) ? null : rate, topMech: topMech });
     });
     var rated = machines.filter(function(m) { return m.rate != null; });
     var avg = rated.length ? rated.reduce(function(a, m) { return a + m.rate; }, 0) / rated.length : null;
     g.sup = {
       fileName: supervisionData.fileName,
       machines: machines, avg: avg,
+      topMechCol: topMechCol || '',
       red: rated.filter(function(m) { return m.rate < 80; }).length,
       orange: rated.filter(function(m) { return m.rate >= 80 && m.rate < 95; }).length,
       green: rated.filter(function(m) { return m.rate >= 95; }).length
     };
   }
-  // 设备故障（按周筛选）
+  // 设备故障（按周筛选）—— 同时建立机台→报修次数 映射（供"面板"使用）
   if (supervisionData && supervisionData.faults && supervisionData.faults.sheetName) {
     var f = supervisionData.faults;
     var colDate = findSupCol(f.headers, [/日期$|日期时间|^date$/i]);
@@ -6676,7 +6688,14 @@ function _wkGather(weekKey) {
     });
     var top = Object.keys(byMachine).map(function(k) { return { machine: k, count: byMachine[k].count, faults: byMachine[k].faults }; })
       .sort(function(a, b) { return b.count - a.count; });
-    g.faults = { total: weekRows.length, top: top, unclassified: !colDate };
+    g.faults = { total: weekRows.length, top: top, unclassified: !colDate, byMachine: byMachine };
+  }
+  // 把报修次数回填到 sup.machines 上（用于 PPT 红蓝框）
+  if (g.sup && g.faults && g.faults.byMachine) {
+    g.sup.machines.forEach(function(m) {
+      var f = g.faults.byMachine[m.name];
+      m.faultCount = f ? f.count : 0;
+    });
   }
   // 特殊产品清单
   if (supervisionData && supervisionData.products && supervisionData.products.rows) {
@@ -7003,14 +7022,14 @@ function weeklyDownloadHtml() {
   showToast('✅ 周报已下载（可用浏览器打开、打印或转 PDF）');
 }
 
-// ---- 导出 PPT（PptxGenJS，6 页） ----
+// ---- 导出 PPT（PptxGenJS，2 页：工艺监察 / 技术员绩效） ----
 function weeklyDownloadPpt() {
   if (!weeklyReportHtml) { showToast('请先生成周报'); return; }
   ensurePptxGenJS(function(err) {
     if (err) { showToast('PPT 生成库加载失败，请检查网络后重试'); return; }
     try {
       _wkBuildPpt();
-      showToast('✅ 周报 PPT 已生成下载（6 页：封面 / 工艺监察 / 故障 / 绩效 / 试模 / 问题关注）');
+      showToast('✅ 周报 PPT 已生成下载（2 页：工艺监察 / 技术员绩效）');
     } catch (e) {
       console.error(e);
       showToast('PPT 生成失败：' + (e && e.message ? e.message : e));
@@ -7022,7 +7041,8 @@ function _wkBuildPpt() {
   var g = _wkGather(weekKey);
   var FONT = 'Microsoft YaHei';
   var C = { dark:'2C2C2A', red:'C0392B', amber:'B8960F', green:'2E7D32', grey:'5F5E5A',
-            line:'D8D6CC', head:'EFEDE6', white:'FFFFFF', blue:'185FA5', track:'F0EEE7', noteBg:'FBF9F2' };
+            line:'D8D6CC', head:'EFEDE6', white:'FFFFFF', blue:'185FA5', track:'F0EEE7', noteBg:'FBF9F2',
+            redSoft:'FCEBEB', blueSoft:'E5F0FA', greenSoft:'EAF3DE' };
   var rateColor = function(r) { return r < 80 ? C.red : (r < 95 ? C.amber : C.green); };
   var pptx = new window.PptxGenJS();
   pptx.defineLayout({ name: 'WK169', width: 10, height: 5.625 });
@@ -7048,91 +7068,127 @@ function _wkBuildPpt() {
   function thCell(t) { return { text: String(t), options: { bold:true, color:C.dark, fill:{ color:C.head }, align:'center', valign:'middle' } }; }
   function tdCell(t, opts) { return { text: String(t), options: Object.assign({ color:C.dark, valign:'middle' }, opts || {}) }; }
 
-  // ===== 第 1 页：封面 + KPI =====
+  // ============================================================
+  // 第 1 页：工艺监察 · 机台符合率（含主要调机人 / 报修次数）
+  // ============================================================
   var s1 = pptx.addSlide();
   s1.background = { color: 'FFFFFF' };
-  s1.addShape(pptx.ShapeType.rect, { x:0, y:0, w:10, h:0.14, fill:{ color:C.dark } });
-  s1.addText('注塑工艺周报', { x:0.5, y:0.62, w:9, h:0.85, fontSize:34, bold:true, color:C.dark, align:'center', fontFace:FONT });
-  s1.addText(weekKey + '  ·  ' + dRange, { x:0.5, y:1.48, w:9, h:0.4, fontSize:14, color:C.grey, align:'center', fontFace:FONT });
-  var kpis = [
-    { l:'监察机台', v: g.sup ? g.sup.machines.length : '—', c: C.blue },
-    { l:'平均符合率', v: g.sup && g.sup.avg != null ? g.sup.avg.toFixed(1) + '%' : '—', c: g.sup && g.sup.avg != null ? rateColor(g.sup.avg) : C.grey },
-    { l:'本周故障', v: g.faults ? g.faults.total : '—', c: C.red },
-    { l:'技术员', v: g.tech && g.tech.people ? g.tech.people.length : '—', c: C.dark },
-    { l:'本周试模', v: g.trial ? g.trial.count : '—', c: C.blue },
-    { l:'涉及模具', v: g.trial ? g.trial.moldCount : '—', c: C.dark }
-  ];
-  for (var i = 0; i < 6; i++) {
-    var col = i % 3, row = Math.floor(i / 3);
-    kpiCard(s1, 0.8 + col * 2.95, 2.15 + row * 1.42, 2.75, 1.22, kpis[i].v, kpis[i].l, kpis[i].c);
-  }
-  s1.addText('数据来源：工艺工作台（工艺监察 / 技术员绩效 / 试模分析） · 制表日期 ' + new Date().toLocaleDateString('zh-CN'),
-    { x:0.5, y:5.12, w:9, h:0.3, fontSize:9.5, color:C.grey, align:'center', fontFace:FONT });
-
-  // ===== 第 2 页：工艺监察 · 机台符合率 =====
-  var s2 = pptx.addSlide();
-  s2.background = { color: 'FFFFFF' };
-  secTitle(s2, '一', '工艺监察 · 机台符合率', '数据为当前快照' + (supervisionData && supervisionData.fileName ? '（' + supervisionData.fileName + '）' : '（未加载）'));
+  secTitle(s1, '一', '工艺监察 · 机台符合率面板',
+    '数据来源：' + (g.sup && g.sup.fileName ? g.sup.fileName : '未加载')
+    + (g.sup && g.sup.topMechCol ? ' · 调机人列：' + g.sup.topMechCol : '')
+    + ' · 周：' + dRange);
   var dist = [
     { l:'平均符合率', v: g.sup && g.sup.avg != null ? g.sup.avg.toFixed(1) + '%' : '—', c: g.sup && g.sup.avg != null ? rateColor(g.sup.avg) : C.grey },
     { l:'低于 80%（红）', v: g.sup ? g.sup.red + ' 台' : '—', c: C.red },
     { l:'80%~95%（橙）', v: g.sup ? g.sup.orange + ' 台' : '—', c: C.amber },
     { l:'≥ 95%（绿）', v: g.sup ? g.sup.green + ' 台' : '—', c: C.green }
   ];
-  for (var j = 0; j < 4; j++) kpiCard(s2, 0.45 + j * 2.32, 1.18, 2.18, 0.82, dist[j].v, dist[j].l, dist[j].c);
+  for (var j = 0; j < 4; j++) kpiCard(s1, 0.45 + j * 2.32, 1.18, 2.18, 0.82, dist[j].v, dist[j].l, dist[j].c);
+
+  // 列标题（图例条）
+  var legY = 2.12;
+  s1.addText('机台', { x:0.45, y:legY, w:1.45, h:0.22, fontSize:9.5, bold:true, color:C.grey, align:'right', fontFace:FONT });
+  s1.addText('符合率', { x:1.95, y:legY, w:3.45, h:0.22, fontSize:9.5, bold:true, color:C.grey, align:'left', fontFace:FONT });
+  s1.addText('数值', { x:5.42, y:legY, w:0.6, h:0.22, fontSize:9.5, bold:true, color:C.grey, align:'center', fontFace:FONT });
+  // 红框标题
+  s1.addShape(pptx.ShapeType.roundRect, { x:6.05, y:legY - 0.02, w:1.9, h:0.26, fill:{ color:C.redSoft }, line:{ color:C.red, width:1 }, rectRadius:0.04 });
+  s1.addText('主要调机人', { x:6.05, y:legY - 0.02, w:1.9, h:0.26, fontSize:9.5, bold:true, color:C.red, align:'center', valign:'middle', fontFace:FONT });
+  // 蓝框标题
+  s1.addShape(pptx.ShapeType.roundRect, { x:7.99, y:legY - 0.02, w:1.55, h:0.26, fill:{ color:C.blueSoft }, line:{ color:C.blue, width:1 }, rectRadius:0.04 });
+  s1.addText('报修次数', { x:7.99, y:legY - 0.02, w:1.55, h:0.26, fontSize:9.5, bold:true, color:C.blue, align:'center', valign:'middle', fontFace:FONT });
+
   if (g.sup && g.sup.machines.length) {
-    var rated = g.sup.machines.filter(function(m){ return m.rate != null; }).sort(function(a,b){ return a.rate - b.rate; });
-    var show = rated.slice(0, 9);
-    var y0 = 2.2, rowH = 0.35;
-    show.forEach(function(m, k) {
+    // 按符合率从低到高排序，全部列出
+    var rated = g.sup.machines.slice().sort(function(a, b) {
+      if (a.rate == null && b.rate == null) return 0;
+      if (a.rate == null) return 1;
+      if (b.rate == null) return -1;
+      return a.rate - b.rate;
+    });
+    var maxShow = Math.min(rated.length, 9); // 留出底部备注空间
+    var y0 = 2.45, rowH = 0.32;
+    rated.slice(0, maxShow).forEach(function(m, k) {
       var y = y0 + k * rowH;
-      s2.addText(m.name, { x:0.45, y:y, w:1.75, h:rowH, fontSize:10, color:C.grey, align:'right', valign:'middle', fontFace:FONT });
-      s2.addShape(pptx.ShapeType.roundRect, { x:2.32, y:y + 0.065, w:6.35, h:0.21, fill:{ color:C.track }, rectRadius:0.03 });
-      s2.addShape(pptx.ShapeType.roundRect, { x:2.32, y:y + 0.065, w:Math.max(0.12, 6.35 * Math.min(m.rate, 100) / 100), h:0.21, fill:{ color:rateColor(m.rate) }, rectRadius:0.03 });
-      s2.addText(m.rate.toFixed(1) + '%', { x:8.72, y:y, w:0.85, h:rowH, fontSize:10, bold:true, color:rateColor(m.rate), valign:'middle', fontFace:FONT });
+      // 机台名
+      s1.addText(m.name, { x:0.45, y:y, w:1.45, h:rowH, fontSize:10.5, color:C.dark, align:'right', valign:'middle', fontFace:FONT });
+      // 符合率条
+      s1.addShape(pptx.ShapeType.roundRect, { x:1.95, y:y + 0.08, w:3.45, h:0.18, fill:{ color:C.track }, rectRadius:0.03 });
+      if (m.rate != null) {
+        s1.addShape(pptx.ShapeType.roundRect, { x:1.95, y:y + 0.08, w:Math.max(0.12, 3.45 * Math.min(m.rate, 100) / 100), h:0.18, fill:{ color:rateColor(m.rate) }, rectRadius:0.03 });
+      }
+      // 数值
+      s1.addText(m.rate != null ? m.rate.toFixed(1) + '%' : '—', { x:5.42, y:y, w:0.6, h:rowH, fontSize:10, bold:true, color:m.rate != null ? rateColor(m.rate) : C.grey, align:'center', valign:'middle', fontFace:FONT });
+      // 红框：主要调机人
+      s1.addShape(pptx.ShapeType.roundRect, { x:6.05, y:y + 0.04, w:1.9, h:rowH - 0.08, fill:{ color:C.redSoft }, line:{ color:C.red, width:0.75 }, rectRadius:0.03 });
+      s1.addText(m.topMech || '—', { x:6.08, y:y + 0.04, w:1.84, h:rowH - 0.08, fontSize:10, color: m.topMech ? C.red : C.grey, bold:!!m.topMech, align:'center', valign:'middle', fontFace:FONT });
+      // 蓝框：报修次数
+      var fc = m.faultCount || 0;
+      s1.addShape(pptx.ShapeType.roundRect, { x:7.99, y:y + 0.04, w:1.55, h:rowH - 0.08, fill:{ color:C.blueSoft }, line:{ color:C.blue, width:0.75 }, rectRadius:0.03 });
+      s1.addText(fc > 0 ? (fc + ' 次') : '0', { x:7.99, y:y + 0.04, w:1.55, h:rowH - 0.08, fontSize:10, color: fc > 0 ? C.blue : C.grey, bold:fc > 0, align:'center', valign:'middle', fontFace:FONT });
     });
-    if (rated.length > 9) s2.addText('（仅列出符合率最低的 9 台，共 ' + rated.length + ' 台）', { x:0.45, y:y0 + 9 * rowH, w:9.1, h:0.3, fontSize:9.5, color:C.grey, fontFace:FONT });
+    if (rated.length > maxShow) {
+      s1.addText('（仅显示符合率最低的 ' + maxShow + ' 台，共 ' + rated.length + ' 台；其余台次符合率更高，详见工作台）',
+        { x:0.45, y:y0 + maxShow * rowH + 0.05, w:9.1, h:0.26, fontSize:9.5, color:C.grey, fontFace:FONT });
+    }
+    if (!g.sup.topMechCol) {
+      s1.addText('⚠ 面板中未识别到"主要调机人"列（请确认最后一个 sheet 表头包含该字段）',
+        { x:0.45, y:5.3, w:9.1, h:0.24, fontSize:9, color:C.amber, fontFace:FONT });
+    }
   } else {
-    s2.addText('未加载工艺监察数据', { x:0.45, y:2.6, w:9.1, h:0.6, fontSize:12, color:C.grey, align:'center', fontFace:FONT });
+    s1.addText('未加载工艺监察数据', { x:0.45, y:2.6, w:9.1, h:0.6, fontSize:12, color:C.grey, align:'center', fontFace:FONT });
   }
 
-  // ===== 第 3 页：设备故障与特殊产品 =====
-  var s3 = pptx.addSlide();
-  s3.background = { color: 'FFFFFF' };
-  secTitle(s3, '二', '设备故障与特殊产品', '故障按所选周筛选' + (g.faults && g.faults.unclassified ? '（注意：故障表无日期列，未按周过滤）' : ''));
-  if (g.faults && g.faults.total > 0) {
-    s3.addText([
-      { text: '本周故障 ', options: { fontSize:13, color:C.dark } },
-      { text: String(g.faults.total), options: { fontSize:22, bold:true, color:C.red } },
-      { text: ' 起', options: { fontSize:13, color:C.dark } }
-    ], { x:0.45, y:1.22, w:4, h:0.5, fontFace:FONT, valign:'middle' });
-    var fRows = [[thCell('机台'), thCell('次数'), thCell('典型故障')]];
-    (g.faults.top || []).slice(0, 6).forEach(function(t) {
-      fRows.push([ tdCell(t.machine), tdCell(t.count, { align:'center', bold:true, color:C.red }), tdCell(t.faults.length ? t.faults.slice(0, 2).join('；') : '—') ]);
-    });
-    s3.addTable(fRows, { x:0.45, y:1.95, w:9.1, colW:[2.2, 0.9, 6.0], fontSize:10.5, fontFace:FONT, rowH:0.34, border:{ pt:0.5, color:C.line }, valign:'middle' });
-    if (g.faults.top.length > 6) s3.addText('（仅列 Top 6，共 ' + g.faults.top.length + ' 台机台有故障）', { x:0.45, y:1.95 + (Math.min(g.faults.top.length, 6) + 1) * 0.34 + 0.08, w:9.1, h:0.28, fontSize:9.5, color:C.grey, fontFace:FONT });
-  } else {
-    s3.addText(g.faults ? '本周无设备故障记录 ✓' : '未加载故障数据', { x:0.45, y:1.4, w:9.1, h:0.5, fontSize:13, color: g.faults ? C.green : C.grey, fontFace:FONT });
-  }
-  s3.addShape(pptx.ShapeType.roundRect, { x:0.45, y:4.85, w:9.1, h:0.55, fill:{ color:C.noteBg }, line:{ color:'E5DFC8', width:1 }, rectRadius:0.05 });
-  s3.addText([
-    { text: '特殊产品清单：', options: { bold:true, color:C.dark } },
-    { text: g.products != null ? g.products + ' 条' + (g.products > 0 ? '（重点关注）' : '（本周无）') : '未加载', options: { color: g.products ? C.red : C.grey } }
-  ], { x:0.75, y:4.85, w:8.5, h:0.55, fontSize:11.5, fontFace:FONT, valign:'middle' });
+  // ============================================================
+  // 第 2 页：技术员绩效（最佳得分置顶 + 前 12 名）
+  // ============================================================
+  var s2 = pptx.addSlide();
+  s2.background = { color: 'FFFFFF' };
+  secTitle(s2, '二', '技术员绩效（本月汇总）',
+    g.tech ? ('来源：' + (g.tech.fileName || '绩效表') + ' · 共 ' + (g.tech.people ? g.tech.people.length : 0) + ' 人') : '未加载技术员绩效数据');
 
-  // ===== 第 4 页：技术员绩效 =====
-  var s4 = pptx.addSlide();
-  s4.background = { color: 'FFFFFF' };
-  secTitle(s4, '三', '技术员绩效（本月汇总）', g.tech ? '来源：' + (g.tech.fileName || '绩效表') : '未加载技术员绩效数据');
   if (g.tech && g.tech.people && g.tech.people.length) {
     var sorted = g.tech.people.slice().sort(function(a, b) { return (b.score || 0) - (a.score || 0); });
     var errCol = function(p, key) { var e = (p.errors || []).filter(function(x){ return x.key === key; })[0]; return e ? (e.count || 0) : 0; };
+    var best = sorted[0];
+
+    // ===== 顶部"最佳得分"高亮卡（用户框选位置） =====
+    if (best) {
+      var bestY = 1.2, bestH = 0.95;
+      // 外框（金绿色高亮）
+      s2.addShape(pptx.ShapeType.roundRect, { x:0.45, y:bestY, w:9.1, h:bestH, fill:{ color:C.greenSoft }, line:{ color:C.green, width:1.5 }, rectRadius:0.08 });
+      // 奖牌
+      s2.addShape(pptx.ShapeType.ellipse, { x:0.65, y:bestY + 0.15, w:0.65, h:0.65, fill:{ color:C.green }, line:{ color:C.green, width:0 } });
+      s2.addText('🏅', { x:0.65, y:bestY + 0.15, w:0.65, h:0.65, fontSize:18, color:C.white, bold:true, align:'center', valign:'middle', fontFace:FONT });
+      // 标题"本月最佳"
+      s2.addText('本月最佳', { x:1.45, y:bestY + 0.1, w:1.6, h:0.3, fontSize:11, color:C.green, bold:true, fontFace:FONT });
+      // 姓名
+      s2.addText(best.name || '—', { x:1.45, y:bestY + 0.36, w:2.5, h:0.5, fontSize:22, bold:true, color:C.dark, fontFace:FONT, valign:'middle' });
+      // 指标块
+      var bestErr = _wkTechErrTotal(best);
+      var bestRate = (typeof best.rate === 'number') ? (best.rate * 100).toFixed(1) + '%' : (best.rate != null ? String(best.rate) : '—');
+      // 监察数
+      s2.addText('监察次数', { x:4.1, y:bestY + 0.08, w:1.2, h:0.22, fontSize:9.5, color:C.grey, align:'center', fontFace:FONT });
+      s2.addText(best.inspected != null ? String(best.inspected) : '—', { x:4.1, y:bestY + 0.32, w:1.2, h:0.42, fontSize:18, bold:true, color:C.dark, align:'center', valign:'middle', fontFace:FONT });
+      // 错误合计
+      s2.addText('错误合计', { x:5.35, y:bestY + 0.08, w:1.2, h:0.22, fontSize:9.5, color:C.grey, align:'center', fontFace:FONT });
+      s2.addText(String(bestErr), { x:5.35, y:bestY + 0.32, w:1.2, h:0.42, fontSize:18, bold:true, color: bestErr >= 5 ? C.red : C.green, align:'center', valign:'middle', fontFace:FONT });
+      // 符合率
+      s2.addText('符合率', { x:6.6, y:bestY + 0.08, w:1.2, h:0.22, fontSize:9.5, color:C.grey, align:'center', fontFace:FONT });
+      s2.addText(bestRate, { x:6.6, y:bestY + 0.32, w:1.2, h:0.42, fontSize:18, bold:true, color:C.green, align:'center', valign:'middle', fontFace:FONT });
+      // 得分（最大）
+      s2.addShape(pptx.ShapeType.roundRect, { x:7.9, y:bestY + 0.08, w:1.5, h:0.78, fill:{ color:C.green }, line:{ color:C.green, width:0 }, rectRadius:0.06 });
+      s2.addText('最佳得分', { x:7.9, y:bestY + 0.1, w:1.5, h:0.24, fontSize:10, color:C.white, align:'center', fontFace:FONT });
+      s2.addText(best.score != null ? String(best.score) : '—', { x:7.9, y:bestY + 0.32, w:1.5, h:0.5, fontSize:24, bold:true, color:C.white, align:'center', valign:'middle', fontFace:FONT });
+    }
+
+    // ===== 下方表格：前 12 名（剩余溢出截断不显示） =====
+    var TOP_N = 12;
+    var show = sorted.slice(0, TOP_N);
     var tRows = [[thCell('名次'), thCell('技术员'), thCell('监察数'), thCell('温差'), thCell('时间'), thCell('未接冰水'), thCell('成型温度'), thCell('错误合计'), thCell('符合率'), thCell('得分')]];
-    sorted.forEach(function(p, idx) {
+    show.forEach(function(p, idx) {
       var errT = _wkTechErrTotal(p);
       var rowColor = idx === 0 ? C.green : (errT >= 5 ? C.red : C.dark);
-      var fill = idx === 0 ? 'EAF3DE' : (errT >= 5 ? 'FCEBEB' : undefined);
+      var fill = idx === 0 ? C.greenSoft : (errT >= 5 ? C.redSoft : undefined);
       tRows.push([
         tdCell(idx + 1, { align:'center' }),
         tdCell(p.name, { bold:true, color:rowColor, fill: fill ? { color: fill } : undefined }),
@@ -7146,59 +7202,15 @@ function _wkBuildPpt() {
         tdCell(p.score != null ? p.score : '—', { align:'center', bold:true, color:rowColor, fill: fill ? { color: fill } : undefined })
       ]);
     });
-    s4.addTable(tRows, { x:0.45, y:1.35, w:9.1, colW:[0.6, 1.4, 0.85, 0.75, 0.75, 1.0, 1.05, 1.0, 0.9, 0.8], fontSize:10.5, fontFace:FONT, rowH:0.36, border:{ pt:0.5, color:C.line }, valign:'middle' });
-    var best = sorted[0], worst = sorted[sorted.length - 1];
-    s4.addText([
-      { text: '🏅 最佳：' + best.name + '（得分 ' + (best.score != null ? best.score : '—') + '）    ', options: { color:C.green, bold:true } },
-      { text: worst && _wkTechErrTotal(worst) >= 5 ? '⚠ 需改进：' + worst.name + '（不规范 ' + _wkTechErrTotal(worst) + ' 次居首）' : '', options: { color:C.amber, bold:true } }
-    ], { x:0.45, y:4.9, w:9.1, h:0.4, fontSize:11, fontFace:FONT, valign:'middle' });
-  } else {
-    s4.addText('未加载技术员绩效数据', { x:0.45, y:2.6, w:9.1, h:0.6, fontSize:12, color:C.grey, align:'center', fontFace:FONT });
-  }
-
-  // ===== 第 5 页：试模分析 =====
-  var s5 = pptx.addSlide();
-  s5.background = { color: 'FFFFFF' };
-  secTitle(s5, '四', '试模分析', '试模数据按所选周筛选' + (store.trialAnalysis && store.trialAnalysis.dirName ? '（' + store.trialAnalysis.dirName + '）' : ''));
-  if (g.trial) {
-    var tk = [
-      { l:'试模次数', v: g.trial.count, c: C.blue },
-      { l:'涉及模具', v: g.trial.moldCount, c: C.dark },
-      { l:'涉及机台', v: g.trial.machineCount, c: C.dark },
-      { l:'调机报废', v: g.trial.scrap, c: g.trial.scrap > 0 ? C.red : C.green },
-      { l:'循环差异均值', v: g.trial.cycleAvg != null ? g.trial.cycleAvg : '—', c: C.dark }
-    ];
-    for (var k2 = 0; k2 < 5; k2++) kpiCard(s5, 0.45 + k2 * 1.86, 1.18, 1.72, 0.82, tk[k2].v, tk[k2].l, tk[k2].c);
-    if (g.trial.pairStats && g.trial.pairStats.length) {
-      var pRows = [[thCell('指标差异'), thCell('超标准'), thCell('低于标准'), thCell('持平'), thCell('缺数据')]];
-      g.trial.pairStats.forEach(function(p) {
-        pRows.push([
-          tdCell(p.label),
-          tdCell(p.ups, { align:'center', bold:true, color: p.ups >= 3 ? C.red : C.dark }),
-          tdCell(p.downs, { align:'center' }),
-          tdCell(p.eqs, { align:'center' }),
-          tdCell(p.missA + p.missB, { align:'center', color: (p.missA + p.missB) > 0 ? C.amber : C.dark })
-        ]);
-      });
-      s5.addTable(pRows, { x:0.45, y:2.28, w:9.1, colW:[3.5, 1.4, 1.4, 1.4, 1.4], fontSize:9.5, fontFace:FONT, rowH:0.28, border:{ pt:0.5, color:C.line }, valign:'middle' });
+    s2.addTable(tRows, { x:0.45, y:2.3, w:9.1, colW:[0.6, 1.4, 0.85, 0.75, 0.75, 1.0, 1.05, 1.0, 0.9, 0.8], fontSize:10, fontFace:FONT, rowH:0.22, border:{ pt:0.5, color:C.line }, valign:'middle' });
+    // 表格底注
+    if (sorted.length > TOP_N) {
+      s2.addText('（仅显示前 ' + TOP_N + ' 名，共 ' + sorted.length + ' 人；其余名次不列入本周 PPT）',
+        { x:0.45, y:2.3 + (show.length + 1) * 0.22 + 0.04, w:9.1, h:0.24, fontSize:9, color:C.grey, fontFace:FONT });
     }
   } else {
-    s5.addText('未加载试模分析数据', { x:0.45, y:2.6, w:9.1, h:0.6, fontSize:12, color:C.grey, align:'center', fontFace:FONT });
+    s2.addText('未加载技术员绩效数据', { x:0.45, y:2.6, w:9.1, h:0.6, fontSize:12, color:C.grey, align:'center', fontFace:FONT });
   }
-
-  // ===== 第 6 页：问题与下周关注 =====
-  var s6 = pptx.addSlide();
-  s6.background = { color: 'FFFFFF' };
-  secTitle(s6, '五', '问题与下周关注', '根据三个模块数据自动提炼');
-  var issues = _wkIssues(g);
-  issues.slice(0, 6).forEach(function(it, k) {
-    var y = 1.3 + k * 0.52;
-    var c = it.level === 'bad' ? C.red : (it.level === 'warn' ? C.amber : C.green);
-    s6.addShape(pptx.ShapeType.rect, { x:0.5, y:y + 0.1, w:0.09, h:0.24, fill:{ color:c } });
-    s6.addText(it.text, { x:0.72, y:y, w:8.8, h:0.46, fontSize:11, color:C.dark, fontFace:FONT, valign:'middle' });
-  });
-  s6.addShape(pptx.ShapeType.roundRect, { x:0.45, y:4.55, w:9.1, h:0.75, fill:{ color:C.noteBg }, line:{ color:'E5DFC8', width:1 }, rectRadius:0.05 });
-  s6.addText('备注（手写补充）：', { x:0.7, y:4.55, w:8.6, h:0.75, fontSize:10.5, color:C.grey, fontFace:FONT, valign:'middle' });
 
   return pptx.writeFile({ fileName: '工艺周报-' + weekKey + '.pptx' });
 }
