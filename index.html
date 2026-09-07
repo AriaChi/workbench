@@ -7085,17 +7085,17 @@ function _wkBuildPpt() {
   ];
   for (var j = 0; j < 4; j++) kpiCard(s1, 0.45 + j * 2.32, 1.18, 2.18, 0.82, dist[j].v, dist[j].l, dist[j].c);
 
-  // 列标题（图例条）
-  var legY = 2.12;
-  s1.addText('机台', { x:0.45, y:legY, w:1.45, h:0.22, fontSize:9.5, bold:true, color:C.grey, align:'right', fontFace:FONT });
-  s1.addText('符合率', { x:1.95, y:legY, w:3.45, h:0.22, fontSize:9.5, bold:true, color:C.grey, align:'left', fontFace:FONT });
-  s1.addText('数值', { x:5.42, y:legY, w:0.6, h:0.22, fontSize:9.5, bold:true, color:C.grey, align:'center', fontFace:FONT });
+  // 列标题（图例条） — 与下方数据列严格对齐
+  var legY = 2.14;
+  s1.addText('机台', { x:0.45, y:legY, w:0.47, h:0.24, fontSize:9.5, bold:true, color:C.grey, align:'right', valign:'middle', fontFace:FONT });
+  s1.addText('符合率', { x:1.156, y:legY + 0.019, w:3.45, h:0.22, fontSize:9.5, bold:true, color:C.grey, align:'left', valign:'middle', fontFace:FONT });
+  s1.addText('数值', { x:5.005, y:legY, w:0.6, h:0.24, fontSize:9.5, bold:true, color:C.grey, align:'center', valign:'middle', fontFace:FONT });
   // 红框标题
-  s1.addShape(pptx.ShapeType.roundRect, { x:6.05, y:legY - 0.02, w:1.9, h:0.26, fill:{ color:C.redSoft }, line:{ color:C.red, width:1 }, rectRadius:0.04 });
-  s1.addText('主要调机人', { x:6.05, y:legY - 0.02, w:1.9, h:0.26, fontSize:9.5, bold:true, color:C.red, align:'center', valign:'middle', fontFace:FONT });
+  s1.addShape(pptx.ShapeType.roundRect, { x:6.062, y:legY, w:1.9, h:0.26, fill:{ color:C.redSoft }, line:{ color:C.red, width:1 }, rectRadius:0.04 });
+  s1.addText('主要调机人', { x:6.062, y:legY, w:1.9, h:0.26, fontSize:9.5, bold:true, color:C.red, align:'center', valign:'middle', fontFace:FONT });
   // 蓝框标题
-  s1.addShape(pptx.ShapeType.roundRect, { x:7.99, y:legY - 0.02, w:1.55, h:0.26, fill:{ color:C.blueSoft }, line:{ color:C.blue, width:1 }, rectRadius:0.04 });
-  s1.addText('报修次数', { x:7.99, y:legY - 0.02, w:1.55, h:0.26, fontSize:9.5, bold:true, color:C.blue, align:'center', valign:'middle', fontFace:FONT });
+  s1.addShape(pptx.ShapeType.roundRect, { x:8.002, y:legY, w:1.55, h:0.26, fill:{ color:C.blueSoft }, line:{ color:C.blue, width:1 }, rectRadius:0.04 });
+  s1.addText('报修次数', { x:8.002, y:legY, w:1.55, h:0.26, fontSize:9.5, bold:true, color:C.blue, align:'center', valign:'middle', fontFace:FONT });
 
   if (g.sup && g.sup.machines.length) {
     // 按符合率从低到高排序，全部列出
@@ -7109,26 +7109,26 @@ function _wkBuildPpt() {
     var y0 = 2.45, rowH = 0.32;
     rated.slice(0, maxShow).forEach(function(m, k) {
       var y = y0 + k * rowH;
-      // 机台名
-      s1.addText(m.name, { x:0.45, y:y, w:1.45, h:rowH, fontSize:10.5, color:C.dark, align:'right', valign:'middle', fontFace:FONT });
-      // 符合率条
-      s1.addShape(pptx.ShapeType.roundRect, { x:1.95, y:y + 0.08, w:3.45, h:0.18, fill:{ color:C.track }, rectRadius:0.03 });
+      // 机台名（紧凑列宽 0.47）
+      s1.addText(m.name, { x:0.45, y:y, w:0.47, h:rowH, fontSize:10.5, color:C.dark, align:'right', valign:'middle', fontFace:FONT });
+      // 符合率条（x=1.156 起，w=3.45）
+      s1.addShape(pptx.ShapeType.roundRect, { x:1.156, y:y + 0.099, w:3.45, h:0.18, fill:{ color:C.track }, rectRadius:0.03 });
       if (m.rate != null) {
-        s1.addShape(pptx.ShapeType.roundRect, { x:1.95, y:y + 0.08, w:Math.max(0.12, 3.45 * Math.min(m.rate, 100) / 100), h:0.18, fill:{ color:rateColor(m.rate) }, rectRadius:0.03 });
+        s1.addShape(pptx.ShapeType.roundRect, { x:1.156, y:y + 0.099, w:Math.max(0.12, 3.45 * Math.min(m.rate, 100) / 100), h:0.18, fill:{ color:rateColor(m.rate) }, rectRadius:0.03 });
       }
-      // 数值
-      s1.addText(m.rate != null ? m.rate.toFixed(1) + '%' : '—', { x:5.42, y:y, w:0.6, h:rowH, fontSize:10, bold:true, color:m.rate != null ? rateColor(m.rate) : C.grey, align:'center', valign:'middle', fontFace:FONT });
-      // 红框：主要调机人
-      s1.addShape(pptx.ShapeType.roundRect, { x:6.05, y:y + 0.04, w:1.9, h:rowH - 0.08, fill:{ color:C.redSoft }, line:{ color:C.red, width:0.75 }, rectRadius:0.03 });
-      s1.addText(m.topMech || '—', { x:6.08, y:y + 0.04, w:1.84, h:rowH - 0.08, fontSize:10, color: m.topMech ? C.red : C.grey, bold:!!m.topMech, align:'center', valign:'middle', fontFace:FONT });
-      // 蓝框：报修次数
+      // 数值（x=5.005, w=0.6）
+      s1.addText(m.rate != null ? m.rate.toFixed(1) + '%' : '—', { x:5.005, y:y, w:0.6, h:rowH, fontSize:10, bold:true, color:m.rate != null ? rateColor(m.rate) : C.grey, align:'center', valign:'middle', fontFace:FONT });
+      // 红框：主要调机人（x=6.062, w=1.9, y 偏移 +0.08, 高 0.24 紧贴行底）
+      s1.addShape(pptx.ShapeType.roundRect, { x:6.062, y:y + 0.08, w:1.9, h:0.24, fill:{ color:C.redSoft }, line:{ color:C.red, width:0.75 }, rectRadius:0.03 });
+      s1.addText(m.topMech || '—', { x:6.092, y:y + 0.08, w:1.84, h:0.24, fontSize:10, color: m.topMech ? C.red : C.grey, bold:!!m.topMech, align:'center', valign:'middle', fontFace:FONT });
+      // 蓝框：报修次数（x=8.002, w=1.55, y 偏移 +0.08, 高 0.24）
       var fc = m.faultCount || 0;
-      s1.addShape(pptx.ShapeType.roundRect, { x:7.99, y:y + 0.04, w:1.55, h:rowH - 0.08, fill:{ color:C.blueSoft }, line:{ color:C.blue, width:0.75 }, rectRadius:0.03 });
-      s1.addText(fc > 0 ? (fc + ' 次') : '0', { x:7.99, y:y + 0.04, w:1.55, h:rowH - 0.08, fontSize:10, color: fc > 0 ? C.blue : C.grey, bold:fc > 0, align:'center', valign:'middle', fontFace:FONT });
+      s1.addShape(pptx.ShapeType.roundRect, { x:8.002, y:y + 0.08, w:1.55, h:0.24, fill:{ color:C.blueSoft }, line:{ color:C.blue, width:0.75 }, rectRadius:0.03 });
+      s1.addText(fc > 0 ? (fc + ' 次') : '0', { x:8.002, y:y + 0.08, w:1.55, h:0.24, fontSize:10, color: fc > 0 ? C.blue : C.grey, bold:fc > 0, align:'center', valign:'middle', fontFace:FONT });
     });
     if (rated.length > maxShow) {
       s1.addText('（仅显示符合率最低的 ' + maxShow + ' 台，共 ' + rated.length + ' 台；其余台次符合率更高，详见工作台）',
-        { x:0.45, y:y0 + maxShow * rowH + 0.05, w:9.1, h:0.26, fontSize:9.5, color:C.grey, fontFace:FONT });
+        { x:0.45, y:y0 + maxShow * rowH + 0.06, w:9.1, h:0.26, fontSize:9.5, color:C.grey, fontFace:FONT });
     }
     if (!g.sup.topMechCol) {
       s1.addText('⚠ 面板中未识别到"主要调机人"列（请确认最后一个 sheet 表头包含该字段）',
@@ -7151,34 +7151,18 @@ function _wkBuildPpt() {
     var errCol = function(p, key) { var e = (p.errors || []).filter(function(x){ return x.key === key; })[0]; return e ? (e.count || 0) : 0; };
     var best = sorted[0];
 
-    // ===== 顶部"最佳得分"高亮卡（用户框选位置） =====
+    // ===== 顶部"最佳得分"信息条（用户框选位置 — 一行横幅，面积小） =====
     if (best) {
-      var bestY = 1.2, bestH = 0.95;
-      // 外框（金绿色高亮）
-      s2.addShape(pptx.ShapeType.roundRect, { x:0.45, y:bestY, w:9.1, h:bestH, fill:{ color:C.greenSoft }, line:{ color:C.green, width:1.5 }, rectRadius:0.08 });
-      // 奖牌
-      s2.addShape(pptx.ShapeType.ellipse, { x:0.65, y:bestY + 0.15, w:0.65, h:0.65, fill:{ color:C.green }, line:{ color:C.green, width:0 } });
-      s2.addText('🏅', { x:0.65, y:bestY + 0.15, w:0.65, h:0.65, fontSize:18, color:C.white, bold:true, align:'center', valign:'middle', fontFace:FONT });
-      // 标题"本月最佳"
-      s2.addText('本月最佳', { x:1.45, y:bestY + 0.1, w:1.6, h:0.3, fontSize:11, color:C.green, bold:true, fontFace:FONT });
-      // 姓名
-      s2.addText(best.name || '—', { x:1.45, y:bestY + 0.36, w:2.5, h:0.5, fontSize:22, bold:true, color:C.dark, fontFace:FONT, valign:'middle' });
-      // 指标块
       var bestErr = _wkTechErrTotal(best);
       var bestRate = (typeof best.rate === 'number') ? (best.rate * 100).toFixed(1) + '%' : (best.rate != null ? String(best.rate) : '—');
-      // 监察数
-      s2.addText('监察次数', { x:4.1, y:bestY + 0.08, w:1.2, h:0.22, fontSize:9.5, color:C.grey, align:'center', fontFace:FONT });
-      s2.addText(best.inspected != null ? String(best.inspected) : '—', { x:4.1, y:bestY + 0.32, w:1.2, h:0.42, fontSize:18, bold:true, color:C.dark, align:'center', valign:'middle', fontFace:FONT });
-      // 错误合计
-      s2.addText('错误合计', { x:5.35, y:bestY + 0.08, w:1.2, h:0.22, fontSize:9.5, color:C.grey, align:'center', fontFace:FONT });
-      s2.addText(String(bestErr), { x:5.35, y:bestY + 0.32, w:1.2, h:0.42, fontSize:18, bold:true, color: bestErr >= 5 ? C.red : C.green, align:'center', valign:'middle', fontFace:FONT });
-      // 符合率
-      s2.addText('符合率', { x:6.6, y:bestY + 0.08, w:1.2, h:0.22, fontSize:9.5, color:C.grey, align:'center', fontFace:FONT });
-      s2.addText(bestRate, { x:6.6, y:bestY + 0.32, w:1.2, h:0.42, fontSize:18, bold:true, color:C.green, align:'center', valign:'middle', fontFace:FONT });
-      // 得分（最大）
-      s2.addShape(pptx.ShapeType.roundRect, { x:7.9, y:bestY + 0.08, w:1.5, h:0.78, fill:{ color:C.green }, line:{ color:C.green, width:0 }, rectRadius:0.06 });
-      s2.addText('最佳得分', { x:7.9, y:bestY + 0.1, w:1.5, h:0.24, fontSize:10, color:C.white, align:'center', fontFace:FONT });
-      s2.addText(best.score != null ? String(best.score) : '—', { x:7.9, y:bestY + 0.32, w:1.5, h:0.5, fontSize:24, bold:true, color:C.white, align:'center', valign:'middle', fontFace:FONT });
+      s2.addText([
+        { text: '🏅 最佳得分：', options: { color: C.green, bold: true } },
+        { text: best.name || '—', options: { color: C.dark, bold: true } },
+        { text: '（' + (best.score != null ? best.score : '—') + ' 分）', options: { color: C.green, bold: true } },
+        { text: '     · 监察 ' + (best.inspected != null ? best.inspected : '—') + ' 次', options: { color: C.grey } },
+        { text: ' · 错误合计 ' + bestErr, options: { color: bestErr >= 5 ? C.red : C.grey } },
+        { text: ' · 符合率 ' + bestRate, options: { color: C.grey } }
+      ], { x:0.45, y:1.097, w:9.1, h:0.4, fontSize:11.5, fontFace:FONT, valign:'middle', align:'left' });
     }
 
     // ===== 下方表格：前 12 名（剩余溢出截断不显示） =====
@@ -7202,11 +7186,11 @@ function _wkBuildPpt() {
         tdCell(p.score != null ? p.score : '—', { align:'center', bold:true, color:rowColor, fill: fill ? { color: fill } : undefined })
       ]);
     });
-    s2.addTable(tRows, { x:0.45, y:2.3, w:9.1, colW:[0.6, 1.4, 0.85, 0.75, 0.75, 1.0, 1.05, 1.0, 0.9, 0.8], fontSize:10, fontFace:FONT, rowH:0.22, border:{ pt:0.5, color:C.line }, valign:'middle' });
+    s2.addTable(tRows, { x:0.414, y:1.632, w:9.1, colW:[0.6, 1.4, 0.85, 0.75, 0.75, 1.0, 1.05, 1.0, 0.9, 0.8], fontSize:10, fontFace:FONT, rowH:0.27, border:{ pt:0.5, color:C.line }, valign:'middle' });
     // 表格底注
     if (sorted.length > TOP_N) {
       s2.addText('（仅显示前 ' + TOP_N + ' 名，共 ' + sorted.length + ' 人；其余名次不列入本周 PPT）',
-        { x:0.45, y:2.3 + (show.length + 1) * 0.22 + 0.04, w:9.1, h:0.24, fontSize:9, color:C.grey, fontFace:FONT });
+        { x:0.45, y:5.2, w:9.1, h:0.24, fontSize:9, color:C.grey, fontFace:FONT });
     }
   } else {
     s2.addText('未加载技术员绩效数据', { x:0.45, y:2.6, w:9.1, h:0.6, fontSize:12, color:C.grey, align:'center', fontFace:FONT });
