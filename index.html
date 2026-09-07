@@ -3832,8 +3832,7 @@ function _mesBuildMergeTable() {
   if (trial && trial.rows) {
     trial.rows.forEach(function(tr, ti) { if (tr.order && !trialByOrder[tr.order]) trialByOrder[tr.order] = ti; });
   }
-  var trialRows = {}; // 合成行下标 → 试模记录下标
-  var matchedTrialIdx = {}; // 已匹配的 trial.rows 下标集合（末尾追加独立行时跳过）
+  var trialRows = {}; // 合成行下标 → 试模记录下标（仅记录匹配到的基础行）
 
   wb.SheetNames.forEach(function(sn) {
     var ws = wb.Sheets[sn];
@@ -3917,36 +3916,12 @@ function _mesBuildMergeTable() {
           row[tStart + 7] = trec.trialCount;                                       // 试模次数
           row[tStart + 8] = trec.trialCountGT5;                                    // 试模次数（大于T5）
           trialRows[rows.length] = ti;
-          matchedTrialIdx[ti] = true;
           matchedTrial++;
         }
       }
       rows.push(row);
     }
   });
-  // 末尾追加：试模记录独有的工单号（MES 汇总没匹配到的）作为独立行
-  // 字段不全：基础列仅填工单号，其他列留空；8 个试模列按现有 fill 逻辑填
-  if (trial && trial.rows && trial.rows.length) {
-    for (var ti2 = 0; ti2 < trial.rows.length; ti2++) {
-      if (matchedTrialIdx[ti2]) continue;
-      var tr2 = trial.rows[ti2];
-      if (!tr2.order) continue;
-      var row2 = new Array(fullHeaders.length).fill('');
-      var orderIdx2 = stdIdx['工单号'];
-      if (orderIdx2 != null) row2[orderIdx2] = tr2.order;
-      row2[tStart] = tr2.person;                                              // 试模人
-      row2[tStart + 1] = tr2.gImgs.length ? tr2.gImgs.length + ' 张' : '';    // 称重照片
-      row2[tStart + 2] = tr2.iImgs.length ? tr2.iImgs.length + ' 张' : '';    // 进胶平衡性
-      row2[tStart + 3] = tr2.j;                                               // 热流道温度1
-      row2[tStart + 4] = tr2.k;                                               // 热流道温度2
-      row2[tStart + 5] = tr2.l;                                               // 试模问题
-      row2[tStart + 6] = tr2.oImgs.length ? tr2.oImgs.length + ' 张' : '';    // 试模照片
-      row2[tStart + 7] = tr2.trialCount;                                      // 试模次数
-      row2[tStart + 8] = tr2.trialCountGT5;                                   // 试模次数（大于T5）
-      trialRows[rows.length] = ti2;
-      rows.push(row2);
-    }
-  }
   return { headers: fullHeaders, rows: rows, matched: matched, matchedMaterial: matchedMaterial, matchedWeight: matchedWeight, weightHeaders: weightHeaders, total: rows.length, tStart: tStart, matchedTrial: matchedTrial, trialRows: trialRows };
 }
 
