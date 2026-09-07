@@ -6314,34 +6314,6 @@ async function _trialParseFiles(files, dirName) {
           }
           recs.push(rec);
         }
-        // 补充：从 store.mesTrialData 追加独立行（MES 汇总 xlsx 没识别到 BD 非空的工单号）
-        // 字段有限：仅填工单号/试模人/试模问题/试模日期，其他留空；图片不引入（避免 imgPool 索引错位）
-        if (store.mesTrialData && store.mesTrialData.rows && store.mesTrialData.rows.length) {
-          var seenByOrder = {};
-          recs.forEach(function(r) { seenByOrder[(r['工单号'] || '') + '|' + (r['类型'] || '')] = true; });
-          store.mesTrialData.rows.forEach(function(tr) {
-            if (!tr.order) return;
-            var key = tr.order + '|';
-            if (seenByOrder[key]) return;
-            seenByOrder[key] = true;
-            var rec = {
-              '工单号': tr.order,
-              '类型': '',
-              '模具编号': '', '产品编号': '', '产品名称': '', '机台名': '',
-              '记录时间': '',
-              '试模日期': '',
-              '循环时间': null, '标准周期': null, '循环差异': null,
-              '试模问题': tr.l || '',
-              '调机人': tr.person || '',
-              '调机报废': null,
-              '__dt': null
-            };
-            pairs.forEach(function(p) {
-              rec[p.a] = null; rec[p.b] = null; rec[p.d] = null;
-            });
-            recs.push(rec);
-          });
-        }
         _trialImgPool = imgPool;
         _trialImgByRec = imgByRec;
         recs.sort(function(a, b) { return (a['__dt'] || 0) - (b['__dt'] || 0); });
