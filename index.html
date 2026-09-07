@@ -3741,7 +3741,6 @@ function clearMesTrialData() {
 function clearAllMesFiles() {
   var hasAny = !!(store.mesData || store.mesPersonData || store.mesMaterialData || store.mesWeightData || store.mesTrialData);
   if (!hasAny) { showToast('没有已导入的文件'); return; }
-  if (!confirm('确定清除所有已导入的文件（MES 导出、调机记录、物料记录、克重记录、试模记录）？')) return;
   store.mesData = null;
   store.mesPersonData = null;
   store.mesMaterialData = null;
@@ -3751,7 +3750,7 @@ function clearAllMesFiles() {
   _mesMergeCache = null;
   saveStore();
   renderSupervision();
-  showToast('已清除全部文件');
+  showToast('✅ 已全部清空');
 }
 
 // 拖拽 Excel 到 MES 导入卡片（type: file / person / material / weight）
