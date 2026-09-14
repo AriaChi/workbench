@@ -5941,8 +5941,11 @@ var _trialImgByRec = null; // { "工单号|类型": {bd:[], jj:[], sm:[]} }
 
 function _trialNum(v) {
   if (v === null || v === undefined) return null;
+  if (v instanceof Date) return null;
   var s = String(v).replace(/,/g, '').trim();
   if (s === '' || /^(nan|none|null|inf|-inf)$/i.test(s)) return null;
+  // 日期样式的文本（2026-08-12 / 2026/8/12 / 2026.8.12 / 2026年8月）不算数字，避免 parseFloat 截成年份 2026
+  if (/^(19|20)\d{2}[-/.年]\d{1,2}([-/.月]\d{1,2})?/.test(s)) return null;
   var f = parseFloat(s);
   if (!isFinite(f)) return null;
   if (f !== f) return null;
