@@ -3943,6 +3943,13 @@ function generateMesMergeTable() {
   });
 }
 
+// 生成"昨天"的 yyyymmdd（MES 数据按前一日归档，默认文件名取昨天）
+function _mesYesterdayStr() {
+  var d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+}
+
 // 填入目标文件按钮：选择本地 Excel，整个数据（所有列）追加到该文件最后一个 sheet 页（带样式）
 function fillMesMergeToTarget() {
   var cache = _mesMergeCache;
@@ -3950,8 +3957,7 @@ function fillMesMergeToTarget() {
   ensureExcelJS(function(err) {
     if (err) { showToast('ExcelJS 库加载失败，无法写入带样式文件（请检查网络后重试）'); return; }
     if (!window.showSaveFilePicker) { _mesDownloadMerge(cache); return; }
-    var d = new Date();
-    var dateStr = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+    var dateStr = _mesYesterdayStr();
     window.showSaveFilePicker({
       suggestedName: 'MES汇总_' + dateStr + '.xlsx',
       types: [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
@@ -4060,8 +4066,7 @@ function _mesWriteOut(handle, wb) {
 
 // 降级：浏览器不支持保存对话框时直接下载（带样式；ExcelJS 加载失败则无样式兜底）
 function _mesDownloadMerge(cache) {
-  var d = new Date();
-  var dateStr = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+  var dateStr = _mesYesterdayStr();
   var fname = 'MES汇总_' + dateStr + '.xlsx';
   ensureExcelJS(function(err) {
     if (err) {
