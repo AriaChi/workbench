@@ -3569,7 +3569,12 @@ function clearMesWeightData() {
 // 源表列（0-based）：A=0 日期、B=1 人员（试模人）、C=2 工单号、F:G=6 称重照片、
 // H:I=8 进胶平衡性、J=9 热流道温度-1、K=10 热流道温度-2、L=11 试模问题、M=12 问题图片、
 // O=14 试模次数、P=15 试模次数（大于T5）
-var MES_TRIAL_ORDER_COL = 2;    // C 列 = 工单号
+// 真实工单号格式（如 PE-20260903-0011_1-001-001），用于校验列位是否被改动
+var MES_ORDER_RE = /^[A-Za-z]{2}-\d{8}-/;
+// 试模记录（钉钉表单导出）的工单号列必须按【列位】取，不能按表头名找：
+// 该表 C 列表头叫「图片和附件理解」，而 D 列表头虽叫「生产工单号」，装的却是图片文件名
+// （如 1-2026-09-03-IMG_5240.png）。按表头名取会整列匹配失败。
+var MES_TRIAL_ORDER_COL = 2;    // C 列 = 工单号（真实工单号）
 var MES_TRIAL_PERSON_COL = 1;   // B 列 = 人员（试模人）
 var MES_TRIAL_TEXT_COLS = { J: 9, K: 10, L: 11, O: 14, P: 15 };
 var MES_TRIAL_IMG_COLS = { G: 6, I: 8, O: 14 }; // 称重照片 / 进胶平衡性 / 试模照片
@@ -3605,10 +3610,12 @@ function parseMesTrialExcel(file) {
             return _mesParseTrialImages(zip).then(function(res) {
               var pool = res.pool, byCell = res.byCell;
               var rows = [];
+              var orderLike = 0;   // C 列中形似真实工单号的条数（列位校验用）
               for (var i = 1; i < aoa.length; i++) {
                 var row = aoa[i] || [];
                 var order = row[MES_TRIAL_ORDER_COL] != null ? String(row[MES_TRIAL_ORDER_COL]).trim() : '';
                 if (!order) continue;
+                if (MES_ORDER_RE.test(order)) orderLike++;
                 rows.push({
                   order: order,
                   person: row[MES_TRIAL_PERSON_COL] != null ? row[MES_TRIAL_PERSON_COL] : '',
@@ -3624,6 +3631,10 @@ function parseMesTrialExcel(file) {
                 });
               }
               if (!rows.length) { showToast('试模记录中没有可用的工单号'); return; }
+              // 列位校验：C 列若多数不像工单号，说明源表列顺序变了（或误取了「生产工单号」文件名列）
+              var colWarn = (orderLike < rows.length * 0.5)
+                ? ' ⚠️ C 列仅 ' + orderLike + '/' + rows.length + ' 条像工单号，请确认试模记录列顺序是否变化'
+                : '';
               store.mesTrialData = {
                 fileName: file.name,
                 rows: rows,
@@ -3634,7 +3645,7 @@ function parseMesTrialExcel(file) {
               _mesMergeCache = null;
               saveStore();
               renderSupervision();
-              showToast('已加载试模记录：' + file.name + '（' + rows.length + ' 条，' + pool.length + ' 张图片）');
+              showToast('已加载试模记录：' + file.name + '（' + rows.length + ' 条，' + pool.length + ' 张图片）' + colWarn);
             });
           }).catch(function(ex) {
             showToast('解析图片失败：' + ex.message);
@@ -3826,6 +3837,9 @@ function _mesBuildMergeTable() {
   var matchedMaterial = 0;
   var matchedWeight = 0;
   var matchedTrial = 0;
+  var orderIdx = headers.indexOf('工单号'); // 基础列里的工单号列（用于补「未监测」行时回填）
+  var seenOrders = {};  // 工艺监测已覆盖的工单号
+  var extraSeen = {};   // 已补过行的工单号（克重与试模可能有重复）
   // 试模记录：工单号 → 记录下标（同一工单号取第一条，与克重一致）
   var trialByOrder = {};
   if (trial && trial.rows) {
@@ -3890,9 +3904,10 @@ function _mesBuildMergeTable() {
       row[headers.length + 4] = hasMat ? matCode : '无记录'; // 物料编号（未匹配标"无记录"）
       row[headers.length + 5] = hasMat ? matName : '无记录'; // 物料名称（未匹配标"无记录"）
       row[headers.length + 6] = batch;                       // 批号
+      var orderNo = rowObj['工单号'] != null ? String(rowObj['工单号']).trim() : '';
+      if (orderNo) seenOrders[orderNo] = 1; // 记下工艺监测已覆盖的工单号
       // 克重记录：按工单号匹配
       if (weightHeaders.length && weight && weight.weightByOrder) {
-        var orderNo = rowObj['工单号'] != null ? String(rowObj['工单号']).trim() : '';
         var wrec = orderNo ? weight.weightByOrder[orderNo] : null;
         if (wrec) {
           weightHeaders.forEach(function(h, j) { row[wStart + j] = wrec[h]; });
@@ -3901,8 +3916,7 @@ function _mesBuildMergeTable() {
       }
       // 试模记录：按工单号匹配（8 列；图片列先填张数占位，写入目标文件时再嵌入真实图片）
       if (trial && trial.rows && trial.rows.length) {
-        var trialOrder = rowObj['工单号'] != null ? String(rowObj['工单号']).trim() : '';
-        var ti = trialOrder ? trialByOrder[trialOrder] : null;
+        var ti = orderNo ? trialByOrder[orderNo] : null;
         if (ti != null) {
           var trec = trial.rows[ti];
           row[tStart] = trec.person;                                               // 试模人
@@ -3921,7 +3935,47 @@ function _mesBuildMergeTable() {
       rows.push(row);
     }
   });
-  return { headers: fullHeaders, rows: rows, matched: matched, matchedMaterial: matchedMaterial, matchedWeight: matchedWeight, weightHeaders: weightHeaders, total: rows.length, tStart: tStart, matchedTrial: matchedTrial, trialRows: trialRows };
+  // ── 补行：克重 / 试模记录里有、工艺监测没覆盖到的工单 ──
+  // 各表时间范围不一致（试模记录常是整月，监测表按天分段），这些工单原本会「溢出」丢失。
+  // 规则：仍以工艺监测为主线，只把多出来的工单单独成行，机台名列标「未监测」，其余基础列留空。
+  var unmonitored = 0;
+  var extraOrders = [];
+  if (weight && weight.weightByOrder) {
+    Object.keys(weight.weightByOrder).forEach(function(o) { if (o && !seenOrders[o]) extraOrders.push(o); });
+  }
+  if (trial && trial.rows) {
+    trial.rows.forEach(function(tr) { if (tr.order && !seenOrders[tr.order]) extraOrders.push(tr.order); });
+  }
+  extraOrders.forEach(function(o) {
+    if (extraSeen[o]) return;
+    extraSeen[o] = 1;
+    var row = new Array(fullHeaders.length).fill('');
+    if (orderIdx >= 0) row[orderIdx] = o;   // 回填工单号
+    row[headers.length] = '未监测';          // 机台名列标注：工艺监测无此工单
+    var wrec = (weightHeaders.length && weight && weight.weightByOrder) ? weight.weightByOrder[o] : null;
+    if (wrec) {
+      weightHeaders.forEach(function(h, j) { row[wStart + j] = wrec[h]; });
+      matchedWeight++;
+    }
+    var ti = trialByOrder[o];
+    if (ti != null) {
+      var trec = trial.rows[ti];
+      row[tStart] = trec.person;                                               // 试模人
+      row[tStart + 1] = trec.gImgs.length ? trec.gImgs.length + ' 张' : '';    // 称重照片
+      row[tStart + 2] = trec.iImgs.length ? trec.iImgs.length + ' 张' : '';    // 进胶平衡性
+      row[tStart + 3] = trec.j;                                                // 热流道温度1
+      row[tStart + 4] = trec.k;                                                // 热流道温度2
+      row[tStart + 5] = trec.l;                                                // 试模问题
+      row[tStart + 6] = trec.oImgs.length ? trec.oImgs.length + ' 张' : '';    // 试模照片
+      row[tStart + 7] = trec.trialCount;                                       // 试模次数
+      row[tStart + 8] = trec.trialCountGT5;                                    // 试模次数（大于T5）
+      trialRows[rows.length] = ti;
+      matchedTrial++;
+    }
+    rows.push(row);
+    unmonitored++;
+  });
+  return { headers: fullHeaders, rows: rows, matched: matched, matchedMaterial: matchedMaterial, matchedWeight: matchedWeight, weightHeaders: weightHeaders, total: rows.length, tStart: tStart, matchedTrial: matchedTrial, trialRows: trialRows, unmonitored: unmonitored };
 }
 
 // 生成合并表按钮
@@ -3935,7 +3989,7 @@ function generateMesMergeTable() {
       if (!res || !res.total) { showToast('没有可合并的数据（记录时间均为空）'); return; }
       _mesMergeCache = res;
       renderSupervision();
-      showToast('✅ 合并完成：' + res.total + ' 行，匹配调机人 ' + res.matched + ' 条，匹配物料 ' + res.matchedMaterial + ' 条，匹配克重 ' + res.matchedWeight + ' 条，匹配试模 ' + res.matchedTrial + ' 条');
+      showToast('✅ 合并完成：' + res.total + ' 行，匹配调机人 ' + res.matched + ' 条，匹配物料 ' + res.matchedMaterial + ' 条，匹配克重 ' + res.matchedWeight + ' 条，匹配试模 ' + res.matchedTrial + ' 条' + (res.unmonitored ? '，其中未监测补行 ' + res.unmonitored + ' 条' : ''));
     } catch (ex) {
       showToast('合并失败：' + ex.message);
       console.error(ex);
@@ -4371,7 +4425,7 @@ function renderSupMesCheck() {
     + '<div class="mes-dropzone" id="mes-dz-trial" ondragover="_mesDzDragOver(event)" ondragleave="_mesDzDragLeave(event)" ondrop="_mesDzDrop(event, \'trial\')">'
     + '<div class="dz-icon">📷</div>'
     + '<div class="dz-title">Excel 5 — 试模记录</div>'
-    + '<div class="dz-desc">拖入即可<br>"试模记录" Excel：C 列=工单号，取人员/称重照片/进胶平衡性/热流道温度1/2/试模问题/试模照片/试模次数/试模次数（大于T5），按工单号匹配填入末尾（含图片）</div>'
+    + '<div class="dz-desc">拖入即可<br>"试模记录" Excel：工单号取 <b>C 列</b>（表头可能显示为「图片和附件理解」，属正常；勿用 D 列「生产工单号」，那是图片文件名），取人员/称重照片/进胶平衡性/热流道温度1/2/试模问题/试模照片/试模次数/试模次数（大于T5），按工单号匹配填入末尾（含图片）</div>'
     + '<div class="dz-btn"><button class="btn btn-primary" onclick="document.getElementById(\'mes-trial-excel-input\').click()" id="mes-trial-btn">选择试模记录</button></div>'
     + '<input type="file" id="mes-trial-excel-input" accept=".xlsx,.xls" style="display:none" onchange="onMesTrialFileSelected(this)">'
     + (trial ? '<div style="color:var(--accent);font-size:12px;margin-top:6px">✅ ' + escapeHtml(trial.fileName) + '（' + trial.rowCount + ' 条）' + (_mesTrialImgPool ? '' : ' ⚠️ 刷新后需重新导入') + '<button class="btn btn-outline btn-sm" onclick="clearMesTrialData()" style="margin-left:8px">清除</button></div>' : '')
@@ -4429,9 +4483,10 @@ function showMesExportHelp() {
     + '<div style="line-height:1.7;font-size:13px;color:var(--text)">'
     + '<p><b>说明：</b>每天从 MES 系统导出五份文件，在工作台合并后追加到本地汇总表。</p>'
     + '<ol style="padding-left:20px">'
-    + '<li>在 MES 系统导出「<b>工艺实时监测值</b>」（所有机台，含记录时间）、「<b>调机记录表</b>」（含结束时间、调机结束人）、「<b>物料操作记录</b>」（含操作时间、物料编号、物料名称、批号）、「<b>克重记录</b>」（A 列=工单号）和「<b>试模记录</b>」（C 列=工单号，含试模人、称重照片、进胶平衡性、温度、试模问题、试模照片）</li>'
+    + '<li>在 MES 系统导出「<b>工艺实时监测值</b>」（所有机台，含记录时间）、「<b>调机记录表</b>」（含结束时间、调机结束人）、「<b>物料操作记录</b>」（含操作时间、物料编号、物料名称、批号）、「<b>克重记录</b>」（A 列=工单号）和「<b>试模记录</b>」（工单号取 <b>C 列</b>——该列表头叫「图片和附件理解」属正常；<b>不要用 D 列「生产工单号」</b>，那列装的是图片文件名；另含试模人、称重照片、进胶平衡性、温度、试模问题、试模照片）</li>'
     + '<li>回到工作台，依次导入文件 1 / 2 / 3 / 4 / 5（<b>可直接从桌面拖入</b>，也可点按钮选择；克重与试模记录为可选）</li>'
     + '<li>点「🔄 生成合并表」：自动把所有机台 sheet 合并为一张表，并按工位编号 + 时间匹配调机人和物料（取时间点之前最近一条记录），再按<b>工单号</b>匹配克重记录（F、L~U、X、Y、AB~AG 列）和试模记录（试模人/称重照片/进胶平衡性/热流道温度1/热流道温度2/试模问题/试模照片/试模次数/试模次数（大于T5））填入表尾</li>'
+    + '<li>克重或试模记录里有、但工艺监测<b>没覆盖到</b>的工单（各表时间范围不一致时会出现），会<b>单独成行</b>并在机台名列标注「<b style="color:#B45309">未监测</b>」，其余基础列留空；克重/试模列照常填入</li>'
     + '<li>点「📥 填入目标文件」：选择你的本地汇总 Excel，整个数据（所有列）自动追加到该文件<b>最后一个 sheet 页</b>的末尾</li>'
     + '<li>首次填入会写入表头 + 数据；之后每天追加，<b>不重复写表头</b></li>'
     + '<li>未匹配到物料的记录，物料编号 / 物料名称列标记为「<b style="color:#B45309">无记录</b>」（黄色高亮）</li>'
