@@ -3389,7 +3389,34 @@ function parseMesPersonExcel(file) {
         Object.keys(group2).forEach(function(m) {
           group2[m].sort(function(a, b) { return a.t - b.t; });
         });
-        store.mesPersonData = { fileName: file.name, group2: group2, rowCount: count, lastLoaded: Date.now() };
+        // 按工单号索引：用于「工艺监测没覆盖到的工单」从调机记录补全。
+        // 这里不受「结束时间非空」限制——只要这条记录挂了工单号，就能提供机台名等信息。
+        var byOrder = {};
+        var cOrder2 = hdr.indexOf('工单号');
+        var cDev2 = hdr.indexOf('设备编号');   // B 列：机台名（如 TZY-ZSJ-037）
+        var cMold2 = hdr.indexOf('模具编号');
+        var cProdCode2 = hdr.indexOf('产品编号');
+        var cProdName2 = hdr.indexOf('产品名称');
+        if (cOrder2 >= 0) {
+          for (var j = 1; j < aoa.length; j++) {
+            var r2 = aoa[j];
+            if (!r2) continue;
+            var o2 = String(r2[cOrder2] != null ? r2[cOrder2] : '').trim();
+            if (!o2 || byOrder[o2]) continue; // 同一工单取第一条
+            var dev2 = cDev2 >= 0 ? String(r2[cDev2] != null ? r2[cDev2] : '').trim() : '';
+            if (!dev2 && cWork >= 0) dev2 = _mesExtractMachine(r2[cWork]) || '';
+            byOrder[o2] = {
+              machine: dev2,
+              mold: cMold2 >= 0 ? String(r2[cMold2] != null ? r2[cMold2] : '').trim() : '',
+              prodCode: cProdCode2 >= 0 ? String(r2[cProdCode2] != null ? r2[cProdCode2] : '').trim() : '',
+              prodName: cProdName2 >= 0 ? String(r2[cProdName2] != null ? r2[cProdName2] : '').trim() : '',
+              person: _mesExtractPersonName(r2[cR]),
+              scrap: r2[cJ] != null && String(r2[cJ]).trim() !== '' ? r2[cJ] : '',
+              endTime: _mesFmtTime(r2[cQ])
+            };
+          }
+        }
+        store.mesPersonData = { fileName: file.name, group2: group2, byOrder: byOrder, rowCount: count, lastLoaded: Date.now() };
         _mesMergeCache = null;
         saveStore();
         renderSupervision();
@@ -3459,7 +3486,35 @@ function parseMesMaterialExcel(file) {
         Object.keys(group3).forEach(function(m) {
           group3[m].sort(function(a, b) { return a.t - b.t; });
         });
-        store.mesMaterialData = { fileName: file.name, group3: group3, rowCount: count, lastLoaded: Date.now() };
+        // 按工单号索引：用于「工艺监测没覆盖到的工单」以及「按时间没匹配上物料」时，
+        // 从物料记录补全物料编号/名称/批号、机台名（设备编号）、模具与产品信息。
+        // 同样不受「操作时间非空」限制，只要挂了工单号即可。
+        var byOrder = {};
+        var cOrder3 = hdr.indexOf('工单号');
+        var cDev3 = hdr.indexOf('设备编号');   // F 列：机台名
+        var cMold3 = hdr.indexOf('模具编号');
+        var cProdCode3 = hdr.indexOf('产品编号');
+        var cProdName3 = hdr.indexOf('产品名称');
+        if (cOrder3 >= 0) {
+          for (var k = 1; k < aoa.length; k++) {
+            var r3 = aoa[k];
+            if (!r3) continue;
+            var o3 = String(r3[cOrder3] != null ? r3[cOrder3] : '').trim();
+            if (!o3 || byOrder[o3]) continue; // 同一工单取第一条
+            var dev3 = cDev3 >= 0 ? String(r3[cDev3] != null ? r3[cDev3] : '').trim() : '';
+            if (!dev3 && cWork >= 0) dev3 = _mesExtractMachine(r3[cWork]) || '';
+            byOrder[o3] = {
+              machine: dev3,
+              mold: cMold3 >= 0 ? String(r3[cMold3] != null ? r3[cMold3] : '').trim() : '',
+              prodCode: cProdCode3 >= 0 ? String(r3[cProdCode3] != null ? r3[cProdCode3] : '').trim() : '',
+              prodName: cProdName3 >= 0 ? String(r3[cProdName3] != null ? r3[cProdName3] : '').trim() : '',
+              code: String(r3[cCode] != null ? r3[cCode] : '').trim(),
+              mat: String(r3[cMat] != null ? r3[cMat] : '').trim(),
+              batch: String(r3[cBatch] != null ? r3[cBatch] : '').trim()
+            };
+          }
+        }
+        store.mesMaterialData = { fileName: file.name, group3: group3, byOrder: byOrder, rowCount: count, lastLoaded: Date.now() };
         _mesMergeCache = null;
         saveStore();
         renderSupervision();
@@ -3900,6 +3955,12 @@ function _mesBuildMergeTable() {
         while (lo3 < hi3) { var mid3 = (lo3 + hi3) >> 1; if (recs3[mid3].t <= tMs) lo3 = mid3 + 1; else hi3 = mid3; }
         if (lo3 > 0 && recs3[lo3 - 1].mat) { matCode = recs3[lo3 - 1].code; matName = recs3[lo3 - 1].mat; batch = recs3[lo3 - 1].batch; hasMat = true; }
       }
+      // 按时间没匹配上时，退一步：按工单号从物料记录补全（同一工单的用料通常一致）
+      if (!hasMat && material && material.byOrder) {
+        var mo = rowObj['工单号'] != null ? String(rowObj['工单号']).trim() : '';
+        var mf = mo ? material.byOrder[mo] : null;
+        if (mf && (mf.code || mf.mat)) { matCode = mf.code; matName = mf.mat; batch = mf.batch; hasMat = true; }
+      }
       if (hasMat) matchedMaterial++;
       row[headers.length + 4] = hasMat ? matCode : '无记录'; // 物料编号（未匹配标"无记录"）
       row[headers.length + 5] = hasMat ? matName : '无记录'; // 物料名称（未匹配标"无记录"）
@@ -3951,7 +4012,31 @@ function _mesBuildMergeTable() {
     extraSeen[o] = 1;
     var row = new Array(fullHeaders.length).fill('');
     if (orderIdx >= 0) row[orderIdx] = o;   // 回填工单号
-    row[headers.length] = '未监测';          // 机台名列标注：工艺监测无此工单
+    // 从调机 / 物料记录按工单号补全——工单监测不到是正常情况，别的表里有信息就补上
+    var p2 = (person && person.byOrder) ? person.byOrder[o] : null;
+    var m3 = (material && material.byOrder) ? material.byOrder[o] : null;
+    var mach2 = (p2 && p2.machine) || (m3 && m3.machine) || '';
+    row[headers.length] = mach2 || '未监测';   // 机台名：优先调机记录设备编号；都找不到才标注
+    if (p2) {
+      row[headers.length + 1] = p2.person || '';   // 调机人
+      row[headers.length + 2] = p2.scrap || '';    // 调机报废数量
+      row[headers.length + 3] = p2.endTime || '';  // 调机结束时间
+    }
+    if (m3) {
+      row[headers.length + 4] = m3.code || '';     // 物料编号
+      row[headers.length + 5] = m3.mat || '';      // 物料名称
+      row[headers.length + 6] = m3.batch || '';    // 批号
+    }
+    // 基础列：只补同名且当前为空的列（模具编号 / 产品编号 / 产品名称）
+    var fillMap = {
+      '模具编号': (p2 && p2.mold) || (m3 && m3.mold) || '',
+      '产品编号': (p2 && p2.prodCode) || (m3 && m3.prodCode) || '',
+      '产品名称': (p2 && p2.prodName) || (m3 && m3.prodName) || ''
+    };
+    Object.keys(fillMap).forEach(function(h) {
+      var ci = headers.indexOf(h);
+      if (ci >= 0 && fillMap[h] && !row[ci]) row[ci] = fillMap[h];
+    });
     var wrec = (weightHeaders.length && weight && weight.weightByOrder) ? weight.weightByOrder[o] : null;
     if (wrec) {
       weightHeaders.forEach(function(h, j) { row[wStart + j] = wrec[h]; });
