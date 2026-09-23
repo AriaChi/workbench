@@ -3996,14 +3996,13 @@ function _mesBuildMergeTable() {
       rows.push(row);
     }
   });
-  // ── 补行：克重 / 试模记录里有、工艺监测没覆盖到的工单 ──
+  // ── 补行：试模记录里有、但工艺监测没覆盖到的工单 ──
   // 各表时间范围不一致（试模记录常是整月，监测表按天分段），这些工单原本会「溢出」丢失。
-  // 规则：仍以工艺监测为主线，只把多出来的工单单独成行，机台名列标「未监测」，其余基础列留空。
+  // 规则：仍以工艺监测为主线，只把试模多出来的工单单独成行，并从调机/物料/克重补全能补的字段。
   var unmonitored = 0;
   var extraOrders = [];
-  if (weight && weight.weightByOrder) {
-    Object.keys(weight.weightByOrder).forEach(function(o) { if (o && !seenOrders[o]) extraOrders.push(o); });
-  }
+  // 补行只由「试模记录」触发。克重记录的作用是按工单号【填充列】，不产生新行——
+  // 否则整月的克重记录会为每个不在监测里的工单都补一行（实测会带来 2000+ 行与试模无关的数据）。
   if (trial && trial.rows) {
     trial.rows.forEach(function(tr) { if (tr.order && !seenOrders[tr.order]) extraOrders.push(tr.order); });
   }
@@ -6421,7 +6420,9 @@ async function _trialParseFiles(files, dirName) {
           bdCount++;
           var wo = baseCols['工单号'] >= 0 ? row[baseCols['工单号']] : row[1];
           var typeVal = baseCols['类型'] >= 0 ? row[baseCols['类型']] : '';
-          var key = String(wo == null ? '' : wo).trim() + '|' + String(typeVal == null ? '' : typeVal).trim();
+          var moldVal = baseCols['模具编号'] >= 0 ? row[baseCols['模具编号']] : '';
+          // 去重键 = 工单号|类型|模具编号：工单号相同但换了模具的，各自单独成行（不合并）
+          var key = String(wo == null ? '' : wo).trim() + '|' + String(typeVal == null ? '' : typeVal).trim() + '|' + String(moldVal == null ? '' : moldVal).trim();
           if (!key || seen[key]) continue;
           seen[key] = true;
           var rec = {};
