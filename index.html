@@ -6100,6 +6100,14 @@ function _trialColIdx(headers, name) {
   for (var i = 0; i < headers.length; i++) if (String(headers[i]).trim() === name) return i;
   return -1;
 }
+// 记录去重键 = 工单号|类型|模具编号（工单号相同但换了模具的，各自单独成行）。
+// ⚠️ 图片索引（_trialExtractImages 的 byRec）必须用【同一个】键，两处必须一致；
+//    一旦只改一处，图片会全部绑定不上（表现为导出有数据没图）。改键请只改这里。
+function _trialRecKey(wo, typeVal, moldVal) {
+  return String(wo == null ? '' : wo).trim() + '|'
+       + String(typeVal == null ? '' : typeVal).trim() + '|'
+       + String(moldVal == null ? '' : moldVal).trim();
+}
 function _trialParseDate(s) {
   if (s === null || s === undefined) return null;
   var str = String(s).trim();
@@ -6166,11 +6174,12 @@ async function _trialExtractImages(buf, aoa, headers) {
       anchors.push({ col: cnum, row: +rowM[1], path: mediaPath, tp: tp });
     }
     var pool = [], byRec = {};
-    var woCol = -1, typeCol = -1;
+    var woCol = -1, typeCol = -1, moldCol = -1;
     for (var i = 0; i < headers.length; i++) {
       var hn = String(headers[i]).trim();
       if (hn === '工单号') woCol = i;
       else if (hn === '类型') typeCol = i;
+      else if (hn === '模具编号') moldCol = i;
     }
     var tasks = anchors.map(function(an) {
       var f = zip.file(an.path);
@@ -6189,8 +6198,10 @@ async function _trialExtractImages(buf, aoa, headers) {
         if (rowIdx >= 0 && rowIdx < aoa.length) {
           var wo = woCol >= 0 ? String(aoa[rowIdx][woCol] || '').trim() : '';
           var tpVal = typeCol >= 0 ? String(aoa[rowIdx][typeCol] || '').trim() : '';
+          var mdVal = moldCol >= 0 ? String(aoa[rowIdx][moldCol] || '').trim() : '';
           if (wo) {
-            var recKey = wo + '|' + tpVal;
+            // 必须与去重键一致（用同一个函数），否则图片绑定不上
+            var recKey = _trialRecKey(wo, tpVal, mdVal);
             var slot = byRec[recKey] = byRec[recKey] || { bd: [], jj: [], sm: [] };
             slot[an.tp].push({ i: poolIdx, r: rowIdx - 1 }); // r = allRows 下标（an.row 含表头，需 -1）
           }
@@ -6422,7 +6433,7 @@ async function _trialParseFiles(files, dirName) {
           var typeVal = baseCols['类型'] >= 0 ? row[baseCols['类型']] : '';
           var moldVal = baseCols['模具编号'] >= 0 ? row[baseCols['模具编号']] : '';
           // 去重键 = 工单号|类型|模具编号：工单号相同但换了模具的，各自单独成行（不合并）
-          var key = String(wo == null ? '' : wo).trim() + '|' + String(typeVal == null ? '' : typeVal).trim() + '|' + String(moldVal == null ? '' : moldVal).trim();
+          var key = _trialRecKey(wo, typeVal, moldVal);
           if (!key || seen[key]) continue;
           seen[key] = true;
           var rec = {};
