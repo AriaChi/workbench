@@ -6649,10 +6649,18 @@ function trialExportExcel() {
         ws.addImage(imgId, { tl: { col: colIdx, row: ridx + 1 }, ext: { width: wpx, height: hpx } });
         return hpx;
       }
+      // 序号：同一模具编号共享同一序号（A/B 等不同工单号的同模具视为同一次试模）
+      var _seqOf = {}, _seqNext = 1;
+      recs.forEach(function(r) {
+        var _mk0 = String(r['模具编号'] == null ? '' : r['模具编号']).trim();
+        if (_mk0 && !(_mk0 in _seqOf)) _seqOf[_mk0] = _seqNext++;
+      });
       recs.forEach(function(r, ridx) {
+        var _mk = String(r['模具编号'] == null ? '' : r['模具编号']).trim();
+        var _seq = _mk ? (_seqOf[_mk] || (ridx + 1)) : (ridx + 1);
         var row = [];
         head.forEach(function(h) {
-          var v = (h === '序号') ? (ridx + 1) : r[h];   // 第一列序号（1 起）
+          var v = (h === '序号') ? _seq : r[h];   // 第一列序号：同模具共享（1 起）
           row.push(v === undefined || v === null ? '' : v);
         });
         var xr = ws.addRow(row);
@@ -6661,7 +6669,7 @@ function trialExportExcel() {
           var c = xr.getCell(idx + 1);
           var v = r[h];
           if (h === '序号') {
-            c.value = ridx + 1; c.font = { bold: true, color: { argb: 'FF2C3E50' } }; center(c);
+            c.value = _seq; c.font = { bold: true, color: { argb: 'FF2C3E50' } }; center(c);
           } else if (h === '循环差异') {
             if (typeof v === 'number') diffCell(c, v);
             else { c.value = '无数据'; diffCell(c, '无数据'); }
