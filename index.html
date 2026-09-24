@@ -3636,10 +3636,27 @@ var MES_TRIAL_TEXT_COLS = { J: 9, K: 10, L: 11, O: 14, P: 15 };
 //   称重照片   F/G → G[6]
 //   进胶平衡性 H/I → I[8]
 //   问题图片   M/N → N[13]   ← 历史上误配成 O[14]（那列是「试模次数」），导致问题图片一直取不到
-//   生产工单号 D/E → E[4]    ← 工单号照片，也一并收进「试模照片」列，保证所有照片都保留
-var MES_TRIAL_IMG_COLS = { G: 6, I: 8, N: 13, E: 4 }; // 称重照片 / 进胶平衡性 / 问题图片 / 工单号照片
+//   生产工单号 D/E → E[4]    ← 工单号照片，独立成「工单号照片」列（不并入试模照片）
+var MES_TRIAL_IMG_COLS = { G: 6, I: 8, N: 13, E: 4 }; // 称重照片 / 进胶平衡性 / 试模照片(问题图片) / 工单号照片
 // 试模 9 列标题（顺序 = 合成表追加列顺序；与源表列一一对应，模温机温度源表无此列）
-var MES_TRIAL_HEADERS = ['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '试模问题', '试模照片', '试模次数', '试模次数（大于T5）'];
+var MES_TRIAL_HEADERS = ['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '试模问题', '工单号照片', '试模照片', '试模次数', '试模次数（大于T5）'];
+// 相对试模列起点 tStart 的图片列偏移 → 记录字段名（改这里要同步 _mesAddTrialImages / 列宽计算）
+var MES_TRIAL_IMG_REL = { 1: 'gImgs', 2: 'iImgs', 6: 'eImgs', 7: 'oImgs' };
+// 把一条试模记录写入合成行的试模列。监测行匹配与补行两处都调它，避免两处逻辑漂移。
+// 列顺序必须与 MES_TRIAL_HEADERS 一致。
+function _mesWriteTrialCells(row, tStart, trec) {
+  var cnt = function(a) { return (a && a.length) ? a.length + ' 张' : ''; };
+  row[tStart]     = trec.person;                                          // 试模人
+  row[tStart + 1] = cnt(trec.gImgs);                                      // 称重照片
+  row[tStart + 2] = cnt(trec.iImgs);                                      // 进胶平衡性
+  row[tStart + 3] = trec.j;                                               // 热流道温度1
+  row[tStart + 4] = trec.k;                                               // 热流道温度2
+  row[tStart + 5] = trec.l;                                               // 试模问题
+  row[tStart + 6] = cnt(trec.eImgs);                                      // 工单号照片（独立列）
+  row[tStart + 7] = cnt(trec.oImgs);                                      // 试模照片
+  row[tStart + 8] = trec.trialCount;                                      // 试模次数
+  row[tStart + 9] = trec.trialCountGT5;                                   // 试模次数（大于T5）
+}
 // 图片内存池（不入 store，刷新后需重新导入；与 rawWorkbook 同一策略）
 var _mesTrialImgPool = null; // [{ ext, data: Uint8Array, w, h, srcW, srcH }]
 
@@ -3687,8 +3704,8 @@ function parseMesTrialExcel(file) {
                   // 图片锚点 key = "列:数据行下标"（drawing XML 的 row 即 aoa 下标，与源表 R2→row=1 对应）
                   gImgs: byCell[MES_TRIAL_IMG_COLS.G + ':' + i] || [],
                   iImgs: byCell[MES_TRIAL_IMG_COLS.I + ':' + i] || [],
-                  // 试模照片列 = 问题图片 + 工单号照片（所有照片都要保留）
-                  oImgs: (byCell[MES_TRIAL_IMG_COLS.N + ':' + i] || []).concat(byCell[MES_TRIAL_IMG_COLS.E + ':' + i] || [])
+                  oImgs: byCell[MES_TRIAL_IMG_COLS.N + ':' + i] || [],  // 试模照片（问题图片）
+                  eImgs: byCell[MES_TRIAL_IMG_COLS.E + ':' + i] || []   // 工单号照片（钉钉表单截图，独立成列）
                 });
               }
               if (!rows.length) { showToast('试模记录中没有可用的工单号'); return; }
@@ -3986,15 +4003,7 @@ function _mesBuildMergeTable() {
         var ti = orderNo ? trialByOrder[orderNo] : null;
         if (ti != null) {
           var trec = trial.rows[ti];
-          row[tStart] = trec.person;                                               // 试模人
-          row[tStart + 1] = trec.gImgs.length ? trec.gImgs.length + ' 张' : '';    // 称重照片
-          row[tStart + 2] = trec.iImgs.length ? trec.iImgs.length + ' 张' : '';    // 进胶平衡性
-          row[tStart + 3] = trec.j;                                                // 热流道温度1
-          row[tStart + 4] = trec.k;                                                // 热流道温度2
-          row[tStart + 5] = trec.l;                                                // 试模问题
-          row[tStart + 6] = trec.oImgs.length ? trec.oImgs.length + ' 张' : '';    // 试模照片
-          row[tStart + 7] = trec.trialCount;                                       // 试模次数
-          row[tStart + 8] = trec.trialCountGT5;                                    // 试模次数（大于T5）
+          _mesWriteTrialCells(row, tStart, trec);
           trialRows[rows.length] = ti;
           matchedTrial++;
         }
@@ -4050,15 +4059,7 @@ function _mesBuildMergeTable() {
     var ti = trialByOrder[o];
     if (ti != null) {
       var trec = trial.rows[ti];
-      row[tStart] = trec.person;                                               // 试模人
-      row[tStart + 1] = trec.gImgs.length ? trec.gImgs.length + ' 张' : '';    // 称重照片
-      row[tStart + 2] = trec.iImgs.length ? trec.iImgs.length + ' 张' : '';    // 进胶平衡性
-      row[tStart + 3] = trec.j;                                                // 热流道温度1
-      row[tStart + 4] = trec.k;                                                // 热流道温度2
-      row[tStart + 5] = trec.l;                                                // 试模问题
-      row[tStart + 6] = trec.oImgs.length ? trec.oImgs.length + ' 张' : '';    // 试模照片
-      row[tStart + 7] = trec.trialCount;                                       // 试模次数
-      row[tStart + 8] = trec.trialCountGT5;                                    // 试模次数（大于T5）
+      _mesWriteTrialCells(row, tStart, trec);
       trialRows[rows.length] = ti;
       matchedTrial++;
     }
@@ -4254,7 +4255,7 @@ function _renderMesMergeSection() {
   if (cache.weightHeaders && cache.weightHeaders.length) {
     cols = cols.concat(cache.weightHeaders.slice(0, 4)); // 预览前 4 个克重列
   }
-  cols = cols.concat(['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '试模问题', '试模照片', '试模次数', '试模次数（大于T5）']);
+  cols = cols.concat(['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '试模问题', '工单号照片', '试模照片', '试模次数', '试模次数（大于T5）']);
   var colIdx = {};
   cache.headers.forEach(function(h, i) { colIdx[h] = i; });
   var preview = cache.rows.slice(0, 30);
@@ -5175,12 +5176,12 @@ function _mesAutoFitColumns(ws, cache) {
   // 图片列（相对 tStart 偏移 1=称重照片 / 2=进胶平衡性 / 6=试模照片）：按图片总宽折算列宽
   if (cache.trialRows && store.mesTrialData && _mesTrialImgPool) {
     var trial = store.mesTrialData;
-    var relMap = { 1: 'gImgs', 2: 'iImgs', 6: 'oImgs' };
+    var relMap = MES_TRIAL_IMG_REL;
     var imgMaxW = {};
     Object.keys(cache.trialRows).forEach(function(ri) {
       var trec = trial.rows[cache.trialRows[ri]];
       if (!trec) return;
-      [1, 2, 6].forEach(function(rel) {
+      [1, 2, 6, 7].forEach(function(rel) {
         var idxs = trec[relMap[rel]] || [];
         var total = 0;
         idxs.forEach(function(pidx) {
@@ -5207,14 +5208,14 @@ function _mesAutoFitColumns(ws, cache) {
 function _mesAddTrialImages(wb, ws, cache, startRow) {
   if (!cache || !cache.trialRows || !store.mesTrialData || !_mesTrialImgPool) return;
   var trial = store.mesTrialData;
-  var relMap = { 1: 'gImgs', 2: 'iImgs', 6: 'oImgs' };
+  var relMap = MES_TRIAL_IMG_REL;
   Object.keys(cache.trialRows).forEach(function(riStr) {
     var ri = +riStr;
     var trec = trial.rows[cache.trialRows[riStr]];
     if (!trec) return;
     var rowNum = startRow + ri;
     var maxH = 0;
-    [1, 2, 6].forEach(function(rel) {
+    [1, 2, 6, 7].forEach(function(rel) {
       var idxs = trec[relMap[rel]] || [];
       if (!idxs.length) return;
       var colIdx = cache.tStart + rel; // 0-based 列索引
@@ -6152,12 +6153,13 @@ async function _trialExtractImages(buf, aoa, headers) {
       if (idM && tgtM) rmap[idM[1]] = tgtM[1];
     }
     // 三种图片列的列号（按表头名动态定位，称重照片兜底 BD=55）
-    var colOf = { bd: -1, jj: -1, sm: -1 };
+    var colOf = { bd: -1, jj: -1, sm: -1, od: -1 };
     for (var hc = 0; hc < headers.length; hc++) {
       var hn = String(headers[hc] == null ? '' : headers[hc]).trim();
       if (hn === '称重照片' && colOf.bd < 0) colOf.bd = hc;
       else if (hn === '进胶平衡性' && colOf.jj < 0) colOf.jj = hc;
       else if (hn === '试模照片' && colOf.sm < 0) colOf.sm = hc;
+      else if (hn === '工单号照片' && colOf.od < 0) colOf.od = hc;
     }
     if (colOf.bd < 0) colOf.bd = TRIAL_BD_IDX;
     var anchors = [];
@@ -6169,10 +6171,11 @@ async function _trialExtractImages(buf, aoa, headers) {
       var embM = /r:embed="(rId\d+)"/.exec(a);
       if (!colM || !rowM || !embM) continue;
       var cnum = +colM[1];
-      var tp = null; // bd=称重照片 jj=进胶平衡性 sm=试模照片
+      var tp = null; // bd=称重照片 jj=进胶平衡性 sm=试模照片 od=工单号照片
       if (cnum === colOf.bd) tp = 'bd';
       else if (cnum === colOf.jj) tp = 'jj';
       else if (cnum === colOf.sm) tp = 'sm';
+      else if (cnum === colOf.od) tp = 'od';
       if (!tp) continue;
       var target = rmap[embM[1]];
       if (!target) continue;
@@ -6208,7 +6211,7 @@ async function _trialExtractImages(buf, aoa, headers) {
           if (wo) {
             // 必须与去重键一致（用同一个函数），否则图片绑定不上
             var recKey = _trialRecKey(wo, tpVal, mdVal);
-            var slot = byRec[recKey] = byRec[recKey] || { bd: [], jj: [], sm: [] };
+            var slot = byRec[recKey] = byRec[recKey] || { bd: [], jj: [], sm: [], od: [] };
             slot[an.tp].push({ i: poolIdx, r: rowIdx - 1 }); // r = allRows 下标（an.row 含表头，需 -1）
           }
         }
@@ -6408,8 +6411,8 @@ async function _trialParseFiles(files, dirName) {
             var baseIdx = imgPool.length;
             fileImgs.pool.forEach(function(img) { imgPool.push(img); });
             Object.keys(fileImgs.byRec).forEach(function(k) {
-              var tgt = imgByRec[k] = imgByRec[k] || { bd: [], jj: [], sm: [] };
-              ['bd', 'jj', 'sm'].forEach(function(tp) {
+              var tgt = imgByRec[k] = imgByRec[k] || { bd: [], jj: [], sm: [], od: [] };
+              ['bd', 'jj', 'sm', 'od'].forEach(function(tp) {
                 (fileImgs.byRec[k][tp] || []).forEach(function(o) { tgt[tp].push({ i: o.i + baseIdx, r: o.r + rowOffset }); });
               });
             });
@@ -6473,9 +6476,11 @@ async function _trialParseFiles(files, dirName) {
             var bdArr = pick(imgByRec[key].bd);
             var jjArr = pick(imgByRec[key].jj);
             var smArr = pick(imgByRec[key].sm);
+            var odArr = pick(imgByRec[key].od);
             if (bdArr.length) rec.__imgs = bdArr;
             if (jjArr.length) rec.__imgsJJ = jjArr;
             if (smArr.length) rec.__imgsSM = smArr;
+            if (odArr.length) rec.__imgsOD = odArr;
           }
           recs.push(rec);
         }
@@ -6577,14 +6582,17 @@ function trialExportExcel() {
         } else { c.value = v ? String(v) : ''; c.font = { color:{argb:'FFD68910'}, bold:true }; }
         center(c);
       }
-      // Sheet1 试模明细 — 原始列 + 分析列；三种图片列移到末尾：
-      // 末尾顺序：进胶平衡性（预留4格）→ 试模问题（文本列，紧贴试模照片之前）→ 试模照片（预留4格）→ 称重照片（张数不定，放最后面）
+      // Sheet1 试模明细 — 原始列 + 分析列；四种图片列移到末尾：
+      // 末尾顺序：进胶平衡性（4格）→ 试模问题（文本列）→ 工单号照片（4格，独立列）→ 试模照片（4格）→ 称重照片（张数不定，放最后面）
       // 每张图嵌一格，不够空着
       var ws = wb.addWorksheet('试模明细', { views:[{ state:'frozen', ySplit:1 }] });
       var rawHeaders = (t.headers || []).slice();
+      // 「计划单号」试模记录里没有（补行取不到，多半是空的）→ 去掉；第一列改为序号
+      rawHeaders = rawHeaders.filter(function(h) { return h !== '计划单号'; });
+      rawHeaders.unshift('序号');
       var hasImgs = !!(_trialImgPool && _trialImgPool.length);
       var origImgCols = {};
-      ['称重照片', '进胶平衡性', '试模照片'].forEach(function(ic) {
+      ['称重照片', '进胶平衡性', '试模照片', '工单号照片'].forEach(function(ic) {
         var at = rawHeaders.indexOf(ic);
         if (at >= 0) { origImgCols[ic] = true; rawHeaders.splice(at, 1); } // 从中段移除（原位置为图片单元格，无文本）
       });
@@ -6594,16 +6602,23 @@ function trialExportExcel() {
       // 图片区：称重照片列数 = 全部记录中最大张数（至少1）；另两种固定4格
       var maxBD = 1;
       recs.forEach(function(r) { if (r.__imgs && r.__imgs.length > maxBD) maxBD = r.__imgs.length; });
-      var JJ_SLOTS = 4, SM_SLOTS = 4;
-      var hasImgZone = hasImgs || origImgCols['称重照片'] || origImgCols['进胶平衡性'] || origImgCols['试模照片'];
+      var JJ_SLOTS = 4, SM_SLOTS = 4, OD_SLOTS = 4;
+      // 「工单号照片」列：源里真有这列（或有图）才输出，老汇总文件不会凭空多一列空的
+      var hasOd = !!origImgCols['工单号照片'];
+      recs.forEach(function(r) { if (!hasOd && r.__imgsOD && r.__imgsOD.length) hasOd = true; });
+      var hasImgZone = hasImgs || origImgCols['称重照片'] || origImgCols['进胶平衡性'] || origImgCols['试模照片'] || hasOd;
       // 试模问题（文本列）属试模记录块，一并移到末尾、紧贴「试模照片」之前；无图片区时保持原位
       var hasTrialIssue = rawHeaders.indexOf('试模问题') >= 0;
       if (hasImgZone && hasTrialIssue) rawHeaders.splice(rawHeaders.indexOf('试模问题'), 1);
-      var bd0 = -1, jj0 = -1, sm0 = -1, ti0 = -1;
+      var bd0 = -1, jj0 = -1, sm0 = -1, ti0 = -1, od0 = -1;
       if (hasImgZone) {
         jj0 = rawHeaders.length;
         for (var k = 0; k < JJ_SLOTS; k++) rawHeaders.push(k === 0 ? '进胶平衡性' : '');
         if (hasTrialIssue) { ti0 = rawHeaders.length; rawHeaders.push('试模问题'); }
+        if (hasOd) {
+          od0 = rawHeaders.length; // 工单号照片：独立成列，不与试模照片混
+          for (var k = 0; k < OD_SLOTS; k++) rawHeaders.push(k === 0 ? '工单号照片' : '');
+        }
         sm0 = rawHeaders.length;
         for (var k = 0; k < SM_SLOTS; k++) rawHeaders.push(k === 0 ? '试模照片' : '');
         bd0 = rawHeaders.length;
@@ -6618,6 +6633,7 @@ function trialExportExcel() {
         if (maxBD > 1) ws.mergeCells(1, bd0 + 1, 1, bd0 + maxBD);
         if (JJ_SLOTS > 1) ws.mergeCells(1, jj0 + 1, 1, jj0 + JJ_SLOTS);
         if (SM_SLOTS > 1) ws.mergeCells(1, sm0 + 1, 1, sm0 + SM_SLOTS);
+        if (hasOd && OD_SLOTS > 1) ws.mergeCells(1, od0 + 1, 1, od0 + OD_SLOTS);
       }
       // 嵌入一张图片到指定列/行，返回图片显示高度（px），无图返回 0
       var IMG_W = 100, IMG_H = 130;
@@ -6636,7 +6652,7 @@ function trialExportExcel() {
       recs.forEach(function(r, ridx) {
         var row = [];
         head.forEach(function(h) {
-          var v = r[h];
+          var v = (h === '序号') ? (ridx + 1) : r[h];   // 第一列序号（1 起）
           row.push(v === undefined || v === null ? '' : v);
         });
         var xr = ws.addRow(row);
@@ -6644,7 +6660,9 @@ function trialExportExcel() {
         head.forEach(function(h, idx) {
           var c = xr.getCell(idx + 1);
           var v = r[h];
-          if (h === '循环差异') {
+          if (h === '序号') {
+            c.value = ridx + 1; c.font = { bold: true, color: { argb: 'FF2C3E50' } }; center(c);
+          } else if (h === '循环差异') {
             if (typeof v === 'number') diffCell(c, v);
             else { c.value = '无数据'; diffCell(c, '无数据'); }
           } else if (pairDiffSet[h]) {
@@ -6667,6 +6685,10 @@ function trialExportExcel() {
             // 试模照片（预留4格）
             rowMaxH = Math.max(rowMaxH, drawImg(r.__imgsSM, idx - sm0, idx, ridx));
             center(c);
+          } else if (hasImgZone && idx >= od0 && idx < od0 + OD_SLOTS) {
+            // 工单号照片（独立列，预留4格）
+            rowMaxH = Math.max(rowMaxH, drawImg(r.__imgsOD, idx - od0, idx, ridx));
+            center(c);
           } else {
             numCell(c, v, h);
           }
@@ -6676,12 +6698,13 @@ function trialExportExcel() {
       });
       head.forEach(function(h, idx) {
         var w = 14;
-        if (h === '工单号') w = 22;
+        if (h === '序号') w = 6;
+        else if (h === '工单号') w = 22;
         else if (h === '产品编号' || h === '产品名称' || h.indexOf('模具') >= 0) w = 18;
         else if (h === '试模日期') w = 12;
         else if (h === '循环差异' || h.indexOf('差异') >= 0 || h.indexOf('差') >= 0) w = 16;
         else if (hasImgZone && idx === ti0) w = 30; // 试模问题文本列（图片区内，需足够宽）
-        else if (hasImgZone && idx >= jj0) w = 15; // 图片区列宽（进胶平衡性/试模照片/称重照片各格）
+        else if (hasImgZone && idx >= jj0) w = 15; // 图片区列宽（进胶/工单号照片/试模照片/称重照片各格）
         ws.getColumn(idx + 1).width = w;
       });
       // Sheet2 差异汇总
