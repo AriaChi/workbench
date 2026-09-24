@@ -3967,7 +3967,9 @@ function _mesIsNumericCol(name) {
 }
 
 // 写「生产统计报表」的三列（报废数量 / 提报数量 / 一次合格率），并用报表值兜底补全基础空缺列。
-// 一次合格率 = 报废数量 ÷（报废数量 + 提报数量），输出百分比文本（与生产统计报表口径一致）。
+// 一次合格率 = 提报数量 ÷（提报数量 + 报废数量）→ 即「良品 ÷ 总数」（提报=入账良品，报废=废品）
+//   报废数量 = 0  → 直接 100.00%（无废品即为全良，且避免 0÷0 无意义）
+//   报废数量 > 0  → 提报 ÷（提报 + 报废）；提报为 0 时得 0.00%
 function _mesFillStat(row, headers, stat, order, sStart) {
   var srec = (stat && stat.statByOrder && order) ? stat.statByOrder[order] : null;
   if (srec) {
@@ -3983,8 +3985,13 @@ function _mesFillStat(row, headers, stat, order, sStart) {
   var rv = (typeof r0 === 'number' && !isNaN(r0)) ? r0 : '';
   row[sStart] = sv;
   row[sStart + 1] = rv;
-  var denom = (sv === '' ? 0 : sv) + (rv === '' ? 0 : rv);
-  row[sStart + 2] = (srec && denom > 0) ? ((sv === '' ? 0 : sv) / denom * 100).toFixed(2) + '%' : '';
+  var rate = '';
+  if (srec) {
+    var scrap = (sv === '' ? 0 : sv), reported = (rv === '' ? 0 : rv);
+    if (scrap === 0) rate = '100.00%';                                  // 无报废 → 全良
+    else rate = (reported / (reported + scrap) * 100).toFixed(2) + '%'; // 良品 ÷（良品 + 废品）
+  }
+  row[sStart + 2] = rate;
   return !!srec;
 }
 
@@ -4648,7 +4655,7 @@ function renderSupMesCheck() {
     + '<div class="mes-dropzone" id="mes-dz-stat" ondragover="_mesDzDragOver(event)" ondragleave="_mesDzDragLeave(event)" ondrop="_mesDzDrop(event, \'stat\')">'
     + '<div class="dz-icon">📊</div>'
     + '<div class="dz-title">Excel 6 — 生产统计报表</div>'
-    + '<div class="dz-desc">拖入即可<br>"生产统计报表" Excel：按工单号匹配，追加减 <b>报废数量 / 提报数量 / 一次合格率</b>（= 报废数量 ÷（报废数量+提报数量））；并用其设备编号/工位编号/模具编号/标准周期/产品编号/产品名称 <b>兜底补全空缺列</b>（同一工单号多行时，提报与报废按工单号累加）</div>'
+    + '<div class="dz-desc">拖入即可<br>"生产统计报表" Excel：按工单号匹配，追加减 <b>报废数量 / 提报数量 / 一次合格率</b>（= 提报数量 ÷（提报数量+报废数量），即良品 ÷ 总数；报废为 0 时直接 100%）；并用其设备编号/工位编号/模具编号/标准周期/产品编号/产品名称 <b>兜底补全空缺列</b>（同一工单号多行时，提报与报废按工单号累加）</div>'
     + '<div class="dz-btn"><button class="btn btn-primary" onclick="document.getElementById(\'mes-stat-excel-input\').click()" id="mes-stat-btn">选择生产统计报表</button></div>'
     + '<input type="file" id="mes-stat-excel-input" accept=".xlsx,.xls" style="display:none" onchange="onMesStatFileSelected(this)">'
     + (stat ? '<div style="color:var(--accent);font-size:12px;margin-top:6px">✅ ' + escapeHtml(stat.fileName) + '（' + stat.rowCount + ' 个工单号）<button class="btn btn-outline btn-sm" onclick="clearMesStatData()" style="margin-left:8px">清除</button></div>' : '')
@@ -4709,7 +4716,7 @@ function showMesExportHelp() {
     + '<li>在 MES 系统导出「<b>工艺实时监测值</b>」（所有机台，含记录时间）、「<b>调机记录表</b>」（含结束时间、调机结束人）、「<b>物料操作记录</b>」（含操作时间、物料编号、物料名称、批号）、「<b>克重记录</b>」（A 列=工单号）、「<b>试模记录</b>」（工单号取 <b>C 列</b>——该列表头叫「图片和附件理解」属正常；<b>不要用 D 列「生产工单号」</b>，那列装的是图片文件名；另含试模人、称重照片、进胶平衡性、温度、试模问题、试模照片）和「<b>生产统计报表</b>」（含工单号、设备编号、工位编号、报废数量、提报数量）</li>'
     + '<li>回到工作台，依次导入文件 1 / 2 / 3 / 4 / 5 / 6（<b>可直接从桌面拖入</b>，也可点按钮选择；克重、试模记录与生产统计报表为可选）</li>'
     + '<li>点「🔄 生成合并表」：自动把所有机台 sheet 合并为一张表，并按工位编号 + 时间匹配调机人和物料（取时间点之前最近一条记录），再按<b>工单号</b>匹配克重记录（F、L~U、X、Y、AB~AG 列）、试模记录（试模人/称重照片/进胶平衡性/热流道温度1/热流道温度2/试模问题/工单号照片/试模照片/试模次数/试模次数（大于T5））和生产统计报表（<b>报废数量 / 提报数量 / 一次合格率</b>）填入表尾</li>'
-    + '<li><b>生产统计报表</b>的「提报数量」「报废数量」按工单号<b>累加</b>（同工单号在报表里按班次日期分行）；「一次合格率」= 报废数量 ÷（报废数量 + 提报数量）。该报表里的设备编号 / 工位编号 / 模具编号 / 标准周期 / 产品编号 / 产品名称还会用于<b>兜底补全</b>汇总表里的空缺列</li>'
+    + '<li><b>生产统计报表</b>的「提报数量」「报废数量」按工单号<b>累加</b>（同工单号在报表里按班次日期分行）；「一次合格率」= 提报数量 ÷（提报数量 + 报废数量），即良品 ÷ 总数，<b>报废数量为 0 时直接记 100.00%</b>。该报表里的设备编号 / 工位编号 / 模具编号 / 标准周期 / 产品编号 / 产品名称还会用于<b>兜底补全</b>汇总表里的空缺列</li>'
     + '<li>克重或试模记录里有、但工艺监测<b>没覆盖到</b>的工单（各表时间范围不一致时会出现），会<b>单独成行</b>并在机台名列标注「<b style="color:#B45309">未监测</b>」；可用列会尽力回填（设备编号取自调机/物料的设备编号或生产统计报表，模具编号/产品编号/产品名称同理），克重/试模/生产统计列照常填入</li>'
     + '<li>点「📥 填入目标文件」：选择你的本地汇总 Excel，整个数据（所有列）自动追加到该文件<b>最后一个 sheet 页</b>的末尾</li>'
     + '<li>首次填入会写入表头 + 数据；之后每天追加，<b>不重复写表头</b></li>'
