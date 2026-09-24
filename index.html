@@ -3641,7 +3641,8 @@ var MES_TRIAL_TEXT_COLS = { J: 9, K: 10, L: 11, O: 14, P: 15 };
 //   生产工单号 D/E → E[4]    ← 工单号照片，独立成「工单号照片」列（不并入试模照片）
 var MES_TRIAL_IMG_COLS = { G: 6, I: 8, N: 13, E: 4 }; // 称重照片 / 进胶平衡性 / 试模照片(问题图片) / 工单号照片
 // 试模 9 列标题（顺序 = 合成表追加列顺序；与源表列一一对应，模温机温度源表无此列）
-var MES_TRIAL_HEADERS = ['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '试模问题', '工单号照片', '试模照片', '试模次数', '试模次数（大于T5）'];
+// 末尾追加「试模日期」：取自试模记录 A 列的日期，作为监测未匹配时「试模日期」的兜底源
+var MES_TRIAL_HEADERS = ['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '试模问题', '工单号照片', '试模照片', '试模次数', '试模次数（大于T5）', '试模日期'];
 // 相对试模列起点 tStart 的图片列偏移 → 记录字段名（改这里要同步 _mesAddTrialImages / 列宽计算）
 var MES_TRIAL_IMG_REL = { 1: 'gImgs', 2: 'iImgs', 6: 'eImgs', 7: 'oImgs' };
 // 「生产统计报表」→ 合成表末尾追加的 3 列（顺序即写入顺序）
@@ -3671,6 +3672,7 @@ function _mesWriteTrialCells(row, tStart, trec) {
   row[tStart + 7] = cnt(trec.oImgs);                                      // 试模照片
   row[tStart + 8] = trec.trialCount;                                      // 试模次数
   row[tStart + 9] = trec.trialCountGT5;                                   // 试模次数（大于T5）
+  row[tStart + 10] = trec.date || '';                                     // 试模日期（试模记录 A 列）
 }
 // 图片内存池（不入 store，刷新后需重新导入；与 rawWorkbook 同一策略）
 var _mesTrialImgPool = null; // [{ ext, data: Uint8Array, w, h, srcW, srcH }]
@@ -3708,9 +3710,12 @@ function parseMesTrialExcel(file) {
                 var order = row[MES_TRIAL_ORDER_COL] != null ? String(row[MES_TRIAL_ORDER_COL]).trim() : '';
                 if (!order) continue;
                 if (MES_ORDER_RE.test(order)) orderLike++;
+                // A 列（0）= 试模记录本身的日期，作为「试模日期」兜底源（监测未匹配时记录时间为空）
+                var trialDate = row[0] != null ? String(row[0]).trim() : '';
                 rows.push({
                   order: order,
                   person: row[MES_TRIAL_PERSON_COL] != null ? row[MES_TRIAL_PERSON_COL] : '',
+                  date: trialDate,
                   j: row[MES_TRIAL_TEXT_COLS.J] != null ? row[MES_TRIAL_TEXT_COLS.J] : '',
                   k: row[MES_TRIAL_TEXT_COLS.K] != null ? row[MES_TRIAL_TEXT_COLS.K] : '',
                   l: row[MES_TRIAL_TEXT_COLS.L] != null ? row[MES_TRIAL_TEXT_COLS.L] : '',
@@ -3967,7 +3972,7 @@ function _mesIsNumericCol(name) {
 }
 
 // 写「生产统计报表」的三列（报废数量 / 提报数量 / 一次合格率），并用报表值兜底补全基础空缺列。
-// 一次合格率 = 提报数量 ÷（提报数量 + 报废数量）→ 即「良品 ÷ 总数」（提报=入账良品，报废=废品）
+// 一次合格率 = 1 − 报废率 = 1 − 报废数量 ÷（报废数量 + 提报数量）→ 即「良品 ÷ 总数」
 //   报废数量 = 0  → 直接 100.00%（无废品即为全良，且避免 0÷0 无意义）
 //   报废数量 > 0  → 提报 ÷（提报 + 报废）；提报为 0 时得 0.00%
 function _mesFillStat(row, headers, stat, order, sStart) {
@@ -3987,9 +3992,10 @@ function _mesFillStat(row, headers, stat, order, sStart) {
   row[sStart + 1] = rv;
   var rate = '';
   if (srec) {
+    // 一次合格率 = 1 − 报废率 = 1 − 报废数量 ÷（报废数量 + 提报数量）
     var scrap = (sv === '' ? 0 : sv), reported = (rv === '' ? 0 : rv);
     if (scrap === 0) rate = '100.00%';                                  // 无报废 → 全良
-    else rate = (reported / (reported + scrap) * 100).toFixed(2) + '%'; // 良品 ÷（良品 + 废品）
+    else rate = (100 - scrap / (scrap + reported) * 100).toFixed(2) + '%';
   }
   row[sStart + 2] = rate;
   return !!srec;
@@ -4655,7 +4661,7 @@ function renderSupMesCheck() {
     + '<div class="mes-dropzone" id="mes-dz-stat" ondragover="_mesDzDragOver(event)" ondragleave="_mesDzDragLeave(event)" ondrop="_mesDzDrop(event, \'stat\')">'
     + '<div class="dz-icon">📊</div>'
     + '<div class="dz-title">Excel 6 — 生产统计报表</div>'
-    + '<div class="dz-desc">拖入即可<br>"生产统计报表" Excel：按工单号匹配，追加减 <b>报废数量 / 提报数量 / 一次合格率</b>（= 提报数量 ÷（提报数量+报废数量），即良品 ÷ 总数；报废为 0 时直接 100%）；并用其设备编号/工位编号/模具编号/标准周期/产品编号/产品名称 <b>兜底补全空缺列</b>（同一工单号多行时，提报与报废按工单号累加）</div>'
+    + '<div class="dz-desc">拖入即可<br>"生产统计报表" Excel：按工单号匹配，追加减 <b>报废数量 / 提报数量 / 一次合格率</b>（= 1 − 报废数量 ÷（报废数量+提报数量），即 1 − 报废率；报废为 0 时直接 100%）；并用其设备编号/工位编号/模具编号/标准周期/产品编号/产品名称 <b>兜底补全空缺列</b>（同一工单号多行时，提报与报废按工单号累加）</div>'
     + '<div class="dz-btn"><button class="btn btn-primary" onclick="document.getElementById(\'mes-stat-excel-input\').click()" id="mes-stat-btn">选择生产统计报表</button></div>'
     + '<input type="file" id="mes-stat-excel-input" accept=".xlsx,.xls" style="display:none" onchange="onMesStatFileSelected(this)">'
     + (stat ? '<div style="color:var(--accent);font-size:12px;margin-top:6px">✅ ' + escapeHtml(stat.fileName) + '（' + stat.rowCount + ' 个工单号）<button class="btn btn-outline btn-sm" onclick="clearMesStatData()" style="margin-left:8px">清除</button></div>' : '')
@@ -4716,7 +4722,7 @@ function showMesExportHelp() {
     + '<li>在 MES 系统导出「<b>工艺实时监测值</b>」（所有机台，含记录时间）、「<b>调机记录表</b>」（含结束时间、调机结束人）、「<b>物料操作记录</b>」（含操作时间、物料编号、物料名称、批号）、「<b>克重记录</b>」（A 列=工单号）、「<b>试模记录</b>」（工单号取 <b>C 列</b>——该列表头叫「图片和附件理解」属正常；<b>不要用 D 列「生产工单号」</b>，那列装的是图片文件名；另含试模人、称重照片、进胶平衡性、温度、试模问题、试模照片）和「<b>生产统计报表</b>」（含工单号、设备编号、工位编号、报废数量、提报数量）</li>'
     + '<li>回到工作台，依次导入文件 1 / 2 / 3 / 4 / 5 / 6（<b>可直接从桌面拖入</b>，也可点按钮选择；克重、试模记录与生产统计报表为可选）</li>'
     + '<li>点「🔄 生成合并表」：自动把所有机台 sheet 合并为一张表，并按工位编号 + 时间匹配调机人和物料（取时间点之前最近一条记录），再按<b>工单号</b>匹配克重记录（F、L~U、X、Y、AB~AG 列）、试模记录（试模人/称重照片/进胶平衡性/热流道温度1/热流道温度2/试模问题/工单号照片/试模照片/试模次数/试模次数（大于T5））和生产统计报表（<b>报废数量 / 提报数量 / 一次合格率</b>）填入表尾</li>'
-    + '<li><b>生产统计报表</b>的「提报数量」「报废数量」按工单号<b>累加</b>（同工单号在报表里按班次日期分行）；「一次合格率」= 提报数量 ÷（提报数量 + 报废数量），即良品 ÷ 总数，<b>报废数量为 0 时直接记 100.00%</b>。该报表里的设备编号 / 工位编号 / 模具编号 / 标准周期 / 产品编号 / 产品名称还会用于<b>兜底补全</b>汇总表里的空缺列</li>'
+    + '<li><b>生产统计报表</b>的「提报数量」「报废数量」按工单号<b>累加</b>（同工单号在报表里按班次日期分行）；「一次合格率」= 1 − 报废数量 ÷（报废数量 + 提报数量），即 1 − 报废率，<b>报废数量为 0 时直接记 100.00%</b>。该报表里的设备编号 / 工位编号 / 模具编号 / 标准周期 / 产品编号 / 产品名称还会用于<b>兜底补全</b>汇总表里的空缺列</li>'
     + '<li>克重或试模记录里有、但工艺监测<b>没覆盖到</b>的工单（各表时间范围不一致时会出现），会<b>单独成行</b>并在机台名列标注「<b style="color:#B45309">未监测</b>」；可用列会尽力回填（设备编号取自调机/物料的设备编号或生产统计报表，模具编号/产品编号/产品名称同理），克重/试模/生产统计列照常填入</li>'
     + '<li>点「📥 填入目标文件」：选择你的本地汇总 Excel，整个数据（所有列）自动追加到该文件<b>最后一个 sheet 页</b>的末尾</li>'
     + '<li>首次填入会写入表头 + 数据；之后每天追加，<b>不重复写表头</b></li>'
@@ -6562,7 +6568,7 @@ async function _trialParseFiles(files, dirName) {
         if (!headers || !allRows.length) { showToast('没有读到数据行'); renderTrial(); return; }
         // 基础字段列定位
         var baseCols = {};
-        ['工单号','类型','模具编号','产品编号','产品名称','机台名','记录时间','循环时间(s)','标准周期','试模问题','调机人','调机报废数量'].forEach(function(n) {
+        ['工单号','类型','模具编号','产品编号','产品名称','机台名','记录时间','试模日期','循环时间(s)','标准周期','试模问题','调机人','调机报废数量'].forEach(function(n) {
           baseCols[n] = _trialColIdx(headers, n);
         });
         var pairs = [];
@@ -6596,6 +6602,8 @@ async function _trialParseFiles(files, dirName) {
             if (ci >= 0 && row[ci] != null) rec[n] = String(row[ci]).trim();
           });
           var dt = baseCols['记录时间'] >= 0 ? _trialParseDate(row[baseCols['记录时间']]) : null;
+          // 记录时间为空（补行/未匹配监测）→ 用试模记录本身的日期兜底（合并表已带「试模日期」列）
+          if (!dt && baseCols['试模日期'] >= 0) dt = _trialParseDate(row[baseCols['试模日期']]);
           rec['试模日期'] = dt ? dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2) : '';
           rec['循环时间'] = baseCols['循环时间(s)'] >= 0 ? _trialNum(row[baseCols['循环时间(s)']]) : null;
           rec['标准周期'] = baseCols['标准周期'] >= 0 ? _trialNum(row[baseCols['标准周期']]) : null;
