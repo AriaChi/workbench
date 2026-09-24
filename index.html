@@ -3632,7 +3632,12 @@ var MES_ORDER_RE = /^[A-Za-z]{2}-\d{8}-/;
 var MES_TRIAL_ORDER_COL = 2;    // C 列 = 工单号（真实工单号）
 var MES_TRIAL_PERSON_COL = 1;   // B 列 = 人员（试模人）
 var MES_TRIAL_TEXT_COLS = { J: 9, K: 10, L: 11, O: 14, P: 15 };
-var MES_TRIAL_IMG_COLS = { G: 6, I: 8, O: 14 }; // 称重照片 / 进胶平衡性 / 试模照片
+// 钉钉表单导出的每个图片字段占【两列】，图片锚在第二列（实测锚点分布：E=30 / G=163 / I=39 / N=19 张）：
+//   称重照片   F/G → G[6]
+//   进胶平衡性 H/I → I[8]
+//   问题图片   M/N → N[13]   ← 历史上误配成 O[14]（那列是「试模次数」），导致问题图片一直取不到
+//   生产工单号 D/E → E[4]    ← 工单号照片，也一并收进「试模照片」列，保证所有照片都保留
+var MES_TRIAL_IMG_COLS = { G: 6, I: 8, N: 13, E: 4 }; // 称重照片 / 进胶平衡性 / 问题图片 / 工单号照片
 // 试模 9 列标题（顺序 = 合成表追加列顺序；与源表列一一对应，模温机温度源表无此列）
 var MES_TRIAL_HEADERS = ['试模人', '称重照片', '进胶平衡性', '热流道温度1', '热流道温度2', '试模问题', '试模照片', '试模次数', '试模次数（大于T5）'];
 // 图片内存池（不入 store，刷新后需重新导入；与 rawWorkbook 同一策略）
@@ -3682,7 +3687,8 @@ function parseMesTrialExcel(file) {
                   // 图片锚点 key = "列:数据行下标"（drawing XML 的 row 即 aoa 下标，与源表 R2→row=1 对应）
                   gImgs: byCell[MES_TRIAL_IMG_COLS.G + ':' + i] || [],
                   iImgs: byCell[MES_TRIAL_IMG_COLS.I + ':' + i] || [],
-                  oImgs: byCell[MES_TRIAL_IMG_COLS.O + ':' + i] || []
+                  // 试模照片列 = 问题图片 + 工单号照片（所有照片都要保留）
+                  oImgs: (byCell[MES_TRIAL_IMG_COLS.N + ':' + i] || []).concat(byCell[MES_TRIAL_IMG_COLS.E + ':' + i] || [])
                 });
               }
               if (!rows.length) { showToast('试模记录中没有可用的工单号'); return; }
