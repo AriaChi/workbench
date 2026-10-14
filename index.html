@@ -4031,7 +4031,7 @@ function _mesBuildMergeTable() {
   if (!headers.length) { showToast('文件1 没有有效表头'); return null; }
   // 「实际周期」列：紧跟「标准周期」之后（与生产统计报表的相对列序一致），值由生产统计报表填入。
   // ⚠️ 这是插在基础列中间的列，会让其后的所有列（机台名块/克重/试模/统计）整体右移一位，
-  //    因此下面的 wStart/tStart/sStart 必须在插入之后计算，试模分析的固定列位也要同步（TRIAL_BD_IDX / TRIAL_PAIR_IDX）。
+  //    因此下面的 wStart/tStart/sStart 必须在插入之后计算。（试模分析按表头名取值，不受插列影响）
   var stdCycleAt = headers.indexOf('标准周期');
   if (stdCycleAt >= 0 && headers.indexOf(MES_STAT_ACTUAL_CYCLE) < 0) headers.splice(stdCycleAt + 1, 0, MES_STAT_ACTUAL_CYCLE);
   var extra = [];
@@ -6240,11 +6240,11 @@ function initSampleData() {
 }
 
 // ========== 试模分析模块 ==========
-// 合成表列位置（0 基）：B=1 工单号；克重列成对（实际在前/标准在后）；BD = 试模行判定列（非空即视为有试模记录），BI 之后为试模问题列
-// ⚠️ 合成表已在基础列中间插入「实际周期」（紧跟「标准周期」），其后的所有列整体右移一位，
-//    因此下列列位都是按插入后的布局写的；若再在试模列之前增删列，这里必须同步 +1/−1。
-var TRIAL_PAIR_IDX = [[37,38],[39,40],[41,42],[43,44],[45,46],[47,48],[49,50],[51,52],[53,54]];
-var TRIAL_BD_IDX = 56;
+// ⚠️ 试模分析【不使用任何绝对列位】。历史 MES汇总 分两代：新版含「实际周期」列、旧版没有，
+//    两者列数不同；只要写死列位，混在一起读就会整体错位一位。因此所有取值一律按【表头名】，
+//    且【逐文件用各自的表头】解析（不能只拿第一个文件的表头套所有文件）。
+//    · 试模行判定列 = 表头「称重照片」（非空即视为有试模记录）
+//    · 克重/BOM 指标对 = 表头里成对的「xxx(实际值)」+「xxx(标准值)」，自动配对
 // 试模图片内存池（不入 store，刷新后需重新导入）
 var _trialImgPool = null; // [{ ext, data: Uint8Array, w, h, srcW, srcH }]
 var _trialImgByRec = null; // { "工单号|类型": {bd:[], jj:[], sm:[]} }
@@ -6267,10 +6267,6 @@ function _trialFmt(v) { // %g 风格
 }
 function _trialDiffName(an) { return an.replace('(实际值)', '').trim() + '(差异)'; }
 function _trialEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function _trialColIdx(headers, name) {
-  for (var i = 0; i < headers.length; i++) if (String(headers[i]).trim() === name) return i;
-  return -1;
-}
 // 记录去重键 = 工单号|类型|模具编号（工单号相同但换了模具的，各自单独成行）。
 // ⚠️ 图片索引（_trialExtractImages 的 byRec）必须用【同一个】键，两处必须一致；
 //    一旦只改一处，图片会全部绑定不上（表现为导出有数据没图）。改键请只改这里。
@@ -6325,7 +6321,7 @@ async function _trialExtractImages(buf, aoa, headers) {
       else if (hn === '试模照片' && colOf.sm < 0) colOf.sm = hc;
       else if (hn === '工单号照片' && colOf.od < 0) colOf.od = hc;
     }
-    if (colOf.bd < 0) colOf.bd = TRIAL_BD_IDX;
+    // 找不到「称重照片」列就按 -1 处理（cnum === -1 永不命中），宁可这类图不取，也不能猜列位
     var anchors = [];
     var anchorRe = /<(?:xdr:)?(oneCellAnchor|twoCellAnchor)[\s\S]*?<\/(?:xdr:)?\1>/g, ma;
     while ((ma = anchorRe.exec(d))) {
@@ -6568,10 +6564,13 @@ async function _trialParseFiles(files, dirName) {
           var aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
           if (!aoa.length) continue;
           fileNames.push(files[fi].name);
-          if (!headers) headers = aoa[0].map(function(x) { return String(x == null ? '' : x).trim(); });
+          // 逐文件用【自己的】表头：新版汇总含「实际周期」、旧版没有，列数不同
+          var fileHeaders = aoa[0].map(function(x) { return String(x == null ? '' : x).trim(); });
+          // 主表头取列数最多的那份（导出/展示用），不能用旧汇总的短表头覆盖新表头
+          if (!headers || fileHeaders.length > headers.length) headers = fileHeaders;
           var rowOffset = allRows.length; // 本文件首行在全局 allRows 中的下标
-          // 提取图片（称重照片 / 进胶平衡性 / 试模照片）
-          var fileImgs = await _trialExtractImages(buf, aoa, headers);
+          // 提取图片（称重照片 / 进胶平衡性 / 试模照片）—— 同样按本文件表头定位图片列
+          var fileImgs = await _trialExtractImages(buf, aoa, fileHeaders);
           if (fileImgs && fileImgs.pool.length) {
             var baseIdx = imgPool.length;
             fileImgs.pool.forEach(function(img) { imgPool.push(img); });
@@ -6582,56 +6581,56 @@ async function _trialParseFiles(files, dirName) {
               });
             });
           }
-          for (var ri = 1; ri < aoa.length; ri++) allRows.push(aoa[ri]);
+          for (var ri = 1; ri < aoa.length; ri++) allRows.push({ h: fileHeaders, r: aoa[ri] });
         }
         if (!headers || !allRows.length) { showToast('没有读到数据行'); renderTrial(); return; }
-        // 基础字段列定位
-        var baseCols = {};
-        ['工单号','类型','模具编号','产品编号','产品名称','机台名','记录时间','试模日期','循环时间(s)','标准周期','试模问题','调机人','调机报废数量'].forEach(function(n) {
-          baseCols[n] = _trialColIdx(headers, n);
-        });
+        // 指标对：表头里成对的「xxx(实际值)」+「xxx(标准值)」，按名自动配对（与列位无关）
         var pairs = [];
-        TRIAL_PAIR_IDX.forEach(function(pr) {
-          var an = headers[pr[0]] || ('第' + (pr[0] + 1) + '列');
-          var bn = headers[pr[1]] || ('第' + (pr[1] + 1) + '列');
-          pairs.push({ a: an, b: bn, d: _trialDiffName(an), ai: pr[0], bi: pr[1] });
+        headers.forEach(function(h) {
+          var hn = String(h == null ? '' : h).trim();
+          if (!/\(实际值\)$/.test(hn)) return;
+          var std = hn.replace('(实际值)', '(标准值)');
+          if (headers.indexOf(std) < 0) return;
+          pairs.push({ a: hn, b: std, d: _trialDiffName(hn) });
         });
         // BD 非空 → 工单号+类型去重（keep first；单色机台类型为空 1 行，双色机台 A/B 两行）
         // 注：有 A/B 时由试模记录补出的「类型为空」行，由下面的「单色/双色归一」统一剔除
         var bdCount = 0, seen = {}, recs = [];
         for (var i = 0; i < allRows.length; i++) {
-          var row = allRows[i];
-          var bd = row[TRIAL_BD_IDX];
+          // 每行配【它自己文件】的表头 → 先按名转成对象，之后一律按名取值，与列位/列数完全解耦
+          var rowAoa = allRows[i].r, rowHdr = allRows[i].h;
+          var rowObj = {};
+          for (var ci = 0; ci < rowHdr.length; ci++) { var hn2 = rowHdr[ci]; if (hn2) rowObj[hn2] = rowAoa[ci]; }
+          var bd = rowObj['称重照片'];
           if (bd === undefined || bd === null || String(bd).trim() === '') continue;
           bdCount++;
-          var wo = baseCols['工单号'] >= 0 ? row[baseCols['工单号']] : row[1];
-          var typeVal = baseCols['类型'] >= 0 ? row[baseCols['类型']] : '';
-          var moldVal = baseCols['模具编号'] >= 0 ? row[baseCols['模具编号']] : '';
+          var wo = rowObj['工单号'];
+          var typeVal = rowObj['类型'];
+          var moldVal = rowObj['模具编号'];
           // 去重键 = 工单号|类型|模具编号：工单号相同但换了模具的，各自单独成行（不合并）
           var key = _trialRecKey(wo, typeVal, moldVal);
           if (!key || seen[key]) continue;
           seen[key] = true;
           var rec = {};
           // 保留原始行所有列数据（导出时需要完整原始信息）
-          headers.forEach(function(h, idx) {
-            if (h) rec[h] = row[idx];
+          headers.forEach(function(h) {
+            if (h) rec[h] = rowObj[h];
           });
           rec['工单号'] = String(wo == null ? '' : wo).trim();
           ['模具编号','产品编号','产品名称','机台名','试模问题','调机人'].forEach(function(n) {
-            var ci = baseCols[n];
-            if (ci >= 0 && row[ci] != null) rec[n] = String(row[ci]).trim();
+            if (rowObj[n] != null) rec[n] = String(rowObj[n]).trim();
           });
-          var dt = baseCols['记录时间'] >= 0 ? _trialParseDate(row[baseCols['记录时间']]) : null;
+          var dt = _trialParseDate(rowObj['记录时间']);
           // 记录时间为空（补行/未匹配监测）→ 用试模记录本身的日期兜底（合并表已带「试模日期」列）
-          if (!dt && baseCols['试模日期'] >= 0) dt = _trialParseDate(row[baseCols['试模日期']]);
+          if (!dt) dt = _trialParseDate(rowObj['试模日期']);
           rec['试模日期'] = dt ? dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2) : '';
-          rec['循环时间'] = baseCols['循环时间(s)'] >= 0 ? _trialNum(row[baseCols['循环时间(s)']]) : null;
-          rec['标准周期'] = baseCols['标准周期'] >= 0 ? _trialNum(row[baseCols['标准周期']]) : null;
+          rec['循环时间'] = _trialNum(rowObj['循环时间(s)']);
+          rec['标准周期'] = _trialNum(rowObj['标准周期']);
           rec['循环差异'] = (rec['循环时间'] !== null && rec['标准周期'] !== null) ? Math.round((rec['循环时间'] - rec['标准周期']) * 10) / 10 : null;
-          rec['调机报废'] = baseCols['调机报废数量'] >= 0 ? _trialNum(row[baseCols['调机报废数量']]) : null;
+          rec['调机报废'] = _trialNum(rowObj['调机报废数量']);
           rec['__dt'] = dt ? dt.getTime() : null;
           pairs.forEach(function(p) {
-            var av = _trialNum(row[p.ai]), bv = _trialNum(row[p.bi]);
+            var av = _trialNum(rowObj[p.a]), bv = _trialNum(rowObj[p.b]);
             rec[p.a] = av; rec[p.b] = bv;
             rec[p.d] = (av !== null && bv !== null) ? Math.round((av - bv) * 10000) / 10000 : null;
           });
@@ -6705,7 +6704,7 @@ async function _trialParseFiles(files, dirName) {
         recs.forEach(function(r) { moldsSet[r['模具编号'] || ''] = 1; machinesSet[r['机台名'] || ''] = 1; });
         store.trialAnalysis = {
           dirName: dirName, files: fileNames, headers: headers,
-          mergedRows: allRows.length, bdCount: bdCount, dualBlankDropped: dualBlankDropped, dualBlankDropped: dualBlankDropped,
+          mergedRows: allRows.length, bdCount: bdCount, dualBlankDropped: dualBlankDropped,
           pairs: pairs.map(function(p) { return { a: p.a, b: p.b, d: p.d }; }),
           recs: recs, summary: summary, weeks: weeks,
           moldCount: Object.keys(moldsSet).length, machineCount: Object.keys(machinesSet).length,
