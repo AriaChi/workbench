@@ -6596,7 +6596,8 @@ async function _trialParseFiles(files, dirName) {
           var bn = headers[pr[1]] || ('第' + (pr[1] + 1) + '列');
           pairs.push({ a: an, b: bn, d: _trialDiffName(an), ai: pr[0], bi: pr[1] });
         });
-        // BD 非空 → 工单号+类型去重（keep first；单色机台类型为空，双色机台保留A/B两行）
+        // BD 非空 → 工单号+类型去重（keep first；单色机台类型为空 1 行，双色机台 A/B 两行）
+        // 注：有 A/B 时由试模记录补出的「类型为空」行，由下面的「单色/双色归一」统一剔除
         var bdCount = 0, seen = {}, recs = [];
         for (var i = 0; i < allRows.length; i++) {
           var row = allRows[i];
